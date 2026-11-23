@@ -27,7 +27,7 @@ def test_each_bot_advertises_only_supported_examples(client, api):
 
 @pytest.mark.parametrize("api", ["QUEUE"], indirect=True)
 def test_book_response_and_resource_state_tell_agent_to_explicitly_claim(client, api):
-    booked = command(client, api, "book n1 30m", agent_label="queue-agent", purpose="Test queue")
+    booked = command(client, api, "book n1 30m", task_category="unit_testing")
     assert booked.status_code == 200 and "not ownership" in booked.json()["next_step"]
     path = f"/api/bots/{api['bot_id']}/resources"
     node = client.get(path, headers=api["headers"]).json()["resources"][0]
@@ -38,12 +38,12 @@ def test_book_response_and_resource_state_tell_agent_to_explicitly_claim(client,
     assert command(client, api, node["claim_command"]).status_code == 200
     node = client.get(path, headers=api["headers"]).json()["resources"][0]
     assert node["holders"][0]["external_user_id"] == "alice"
-    assert node["holders"][0]["usage"]["purpose"] == "Test queue"
+    assert node["holders"][0]["usage"]["task_category"] == "unit_testing"
     assert node["claimable_by_you"] is False
 
 
 def test_api_release_physically_removes_stale_task(client, api, db_session):
-    command(client, api, "lock n1 1h", purpose="Task")
+    command(client, api, "lock n1 1h", task_category="operator_development")
     assert db_session.query(UsageDeclaration).count() == 1
     command(client, api, "free n1", purpose="Finished")
     assert db_session.query(UsageDeclaration).count() == 0
@@ -56,15 +56,15 @@ def test_housekeeping_removes_native_release_but_keeps_new_current_task(
 
     monkeypatch.setattr(usage_cleanup, "SessionLocal", session_factory)
     monkeypatch.setattr(usage_cleanup, "bot_manager", api["manager"])
-    command(client, api, "lock n1 1h", purpose="Old task")
-    command(client, api, "lock n2 1h", purpose="Current task")
+    command(client, api, "lock n1 1h", task_category="operator_development")
+    command(client, api, "lock n2 1h", task_category="code_review")
     api["bot"].unlock("alice", "free n1")  # native grammar, no metadata hook
     assert db_session.query(UsageDeclaration).count() == 2
     result = usage_cleanup.cleanup_usage_once()
     db_session.expire_all()
     assert result["removed"] == 1
     remaining = db_session.query(UsageDeclaration).one()
-    assert remaining.resource_id == "n2" and remaining.purpose == "Current task"
+    assert remaining.resource_id == "n2" and remaining.task_category == "code_review"
 
 
 def test_housekeeping_expired_and_revoked_declarations_are_removed(
@@ -74,12 +74,12 @@ def test_housekeeping_expired_and_revoked_declarations_are_removed(
 
     monkeypatch.setattr(usage_cleanup, "SessionLocal", session_factory)
     monkeypatch.setattr(usage_cleanup, "bot_manager", api["manager"])
-    command(client, api, "lock n1 1h", purpose="Expired")
+    command(client, api, "lock n1 1h", task_category="operator_development")
     row = db_session.query(UsageDeclaration).one()
     row.expires_at = datetime.utcnow() - timedelta(seconds=1)
     db_session.commit()
     assert usage_cleanup.cleanup_usage_once()["removed"] == 1
-    command(client, api, "lock n2 1h", purpose="Revoked")
+    command(client, api, "lock n2 1h", task_category="operator_development")
     row = db_session.query(ResourceBinding).filter_by(external_user_id="alice").one()
     row.revoked_at = datetime.utcnow()
     db_session.commit()

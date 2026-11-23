@@ -1,4 +1,4 @@
-"""Agent purposes survive as private bounded files, independently of live declaration cleanup."""
+"""Agent operation history and protections for existing event files."""
 
 # ruff: noqa: F811
 
@@ -20,7 +20,6 @@ def event_managers(api, monkeypatch):
     from fake_adapter import FakeAdapter
 
     api["bot"].adapter = FakeAdapter(config=api["bot"].config)
-    monkeypatch.setattr("lockbot.backend.app.resource_api.usage.bot_manager", api["manager"])
 
 
 def records(tmp_path, api):
@@ -42,7 +41,7 @@ def test_operation_metadata_goes_to_files_and_does_not_claim_success(client, api
     assert response.status_code == 200
     entry = records(tmp_path, api)[-1]
     assert entry["actor"] == {"platform": "infoflow", "external_user_id": "alice"}
-    assert entry["agent_label"] == "build-agent" and entry["purpose"] == "Develop feature X"
+    assert "agent_label" not in entry and "purpose" not in entry
     assert entry["http_status"] == 200 and entry["outcome"] == "dispatched"
     assert "success" not in entry and entry["duration_ms"] >= 0
     expected = {"resource_id": "n1"}
@@ -71,24 +70,14 @@ def test_rejected_core_reply_is_still_only_a_dispatch(client, api, tmp_path):
     assert api["bot"].state.bot_state["n1"]["current_users"][0]["user_id"] == "alice"
 
 
-def test_usage_changes_and_release_keep_history_after_live_cleanup(client, api, tmp_path):
+def test_release_keeps_command_history_without_private_metadata(client, api, tmp_path):
     assert command(client, api, "lock n1 1h", agent_label="dev-agent", purpose="Original task").status_code == 200
-    path = f"/api/bots/{api['bot_id']}/usage-declarations/n1"
-    assert (
-        client.put(path, headers=api["headers"], json={"purpose": "New task", "agent_label": "test-agent"}).status_code
-        == 200
-    )
-    assert client.delete(path, headers=api["headers"]).status_code == 200
     assert command(client, api, "free n1", purpose="Task completed").status_code == 200
     events = records(tmp_path, api)
-    assert [row["operation"] for row in events] == ["command", "usage.update", "usage.delete", "command"]
-    assert events[1]["purpose"] == "New task" and events[1]["outcome"] == "applied"
-    assert events[-1]["purpose"] == "Task completed"
+    assert [row["operation"] for row in events] == ["command", "command"]
+    assert all("purpose" not in row and "agent_label" not in row for row in events)
     assert events[-1]["observed_state"]["resources"][0]["holders"] == []
     assert not api["bot"].state.bot_state["n1"]["current_users"]
-    current = client.get(f"/api/bots/{api['bot_id']}/usage-declarations", headers=api["headers"])
-    assert current.json()["items"] == []
-    assert records(tmp_path, api) == events
 
 
 def test_refusals_and_invalid_bodies_do_not_log_raw_payloads(client, api, tmp_path):

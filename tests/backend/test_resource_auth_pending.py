@@ -30,13 +30,12 @@ def store():
     return InProcessPendingBindingStore()
 
 
-def _create(store, code="CODE1234", *, source="1.2.3.4", now=None, binding_id=None, label=None, window=WINDOW):
+def _create(store, code="CODE1234", *, source="1.2.3.4", now=None, binding_id=None, window=WINDOW):
     return store.create(
         binding_id=binding_id or credentials.generate_public_id(),
         code_digest=credentials.digest_bind_code(code),
         credential_digest=credentials.digest_credential("lbr_" + code),
         source=source,
-        label=label,
         window_seconds=window,
         now=now or _now(),
         **CAPS,
@@ -335,8 +334,8 @@ class TestIssuanceRetriesOnCollision:
         codes = iter(["DUPCODE1", "DUPCODE1", "UNIQUE23"])
         monkeypatch.setattr(service.credentials, "generate_bind_code", lambda: next(codes))
 
-        first = service.create_binding(label="a")
-        second = service.create_binding(label="b")  # first code collides, retry succeeds
+        first = service.create_binding()
+        second = service.create_binding()  # first code collides, retry succeeds
 
         assert first["binding_id"] != second["binding_id"]
         assert first["bind_code"] != second["bind_code"]

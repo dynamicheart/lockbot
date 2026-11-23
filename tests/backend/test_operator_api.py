@@ -28,7 +28,11 @@ def command(client, case, text, *, other=False, purpose="develop"):
     response = client.post(
         f"/api/bots/{case['bot_id']}/commands",
         headers=case["other_headers"] if other else case["headers"],
-        json={"command": text, "agent_label": "test-agent" if other else "dev-agent", "purpose": purpose},
+        json={
+            "command": text,
+            "task_category": "unit_testing" if other else "operator_development",
+            "purpose": purpose,
+        },
     )
     assert response.status_code == 200, response.text
 

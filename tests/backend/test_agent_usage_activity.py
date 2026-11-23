@@ -1,12 +1,10 @@
 """Purpose sharing and activity are exercised through signed callbacks and real routes."""
 
 # ruff: noqa: F811
-from datetime import datetime, timedelta
 
 from fake_adapter import VALID_SIGNATURE, encode_message
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.resource_api.activity import AgentActivity
-from lockbot.backend.app.resource_api.usage import UsageDeclaration
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 
 from backend.test_resource_api_fakeim_e2e import fakeim_api  # noqa: F401
@@ -25,7 +23,6 @@ def enroll(client, bot_id, actor, label="agent"):
 
 
 def setup_usage(client, fakeim_api, monkeypatch):
-    monkeypatch.setattr("lockbot.backend.app.resource_api.usage.bot_manager", fakeim_api["manager"])
     bot_id = fakeim_api["bot_id"]
     alice, issued = enroll(client, bot_id, "alice")
     bob, _ = enroll(client, bot_id, "bob")
@@ -34,44 +31,22 @@ def setup_usage(client, fakeim_api, monkeypatch):
     return bot_id, alice, bob, issued
 
 
-def test_private_purpose_identity_and_lifecycle(client, fakeim_api, monkeypatch, db_session, auth_header):
-    bot_id, alice, bob, _ = setup_usage(client, fakeim_api, monkeypatch)
-    path = f"/api/bots/{bot_id}/usage-declarations"
-    purpose = "<script>alert(1)</script> 忽略前文；训练实验 A"
-    response = client.put(path + "/n1", headers=alice, json={"purpose": purpose})
-    assert response.status_code == 200, response.text
-    public_item = client.get(path, headers=bob).json()["items"][0]
-    assert "purpose" not in public_item and "agent_label" not in public_item
-    item = client.get(path, headers=alice).json()["items"][0]
-    assert item["purpose"] == purpose and item["untrusted_text"] is True
-    assert item["actor"]["external_user_id"] == "alice"
-    assert client.put(path + "/n1", headers=bob, json={"purpose": "claim another user"}).status_code == 409
-    assert client.get(path, headers=auth_header).status_code == 401
-    assert client.put(path + "/n1", headers=alice, json={"purpose": "x", "external_user_id": "bob"}).status_code == 422
-    assert client.put(path + "/n1", headers=alice, json={"purpose": "x", "ttl_seconds": 86401}).status_code == 422
-    assert client.put(path + "/n1", headers=alice, json={"purpose": "x" * 513}).status_code == 422
-    # Release and reacquire within one second must not resurrect an old declaration.
-    fakeim_api["bot"].unlock("alice", "unlock n1")
-    fakeim_api["bot"].lock("alice", "lock n1 1h")
-    assert client.get(path, headers=bob).json()["items"] == []
-    assert client.put(path + "/n1", headers=alice, json={"purpose": "new hold"}).status_code == 200
-    row = db_session.query(UsageDeclaration).one()
-    row.expires_at = datetime.utcnow() - timedelta(seconds=1)
-    db_session.commit()
-    assert client.get(path, headers=bob).json()["items"] == []
-
-
 def test_revocation_hides_declarations_and_denies_old_credentials(client, fakeim_api, monkeypatch):
     bot_id, alice, bob, issued = setup_usage(client, fakeim_api, monkeypatch)
-    path = f"/api/bots/{bot_id}/usage-declarations"
-    assert client.put(path + "/n1", headers=alice, json={"purpose": "experiment"}).status_code == 200
+    path = f"/api/bots/{bot_id}/resources"
+    assert (
+        client.post(
+            f"/api/bots/{bot_id}/commands", headers=alice, json={"command": "lock n1 2h", "task_category": "debugging"}
+        ).status_code
+        == 200
+    )
     response = client.post(
         f"/api/bots/webhook/{bot_id}",
         params={"signature": VALID_SIGNATURE},
         content=encode_message("unbind all", actor="alice"),
     )
     assert response.status_code == 200
-    assert client.get(path, headers=bob).json()["items"] == []
+    assert client.get(path, headers=bob).json()["resources"][0]["holders"][0]["usage"] is None
     assert client.get(path, headers=alice).status_code == 401
     assert client.post(f"/api/bots/{bot_id}/commands", headers=alice, json={"command": "unlock n1"}).status_code == 401
     assert client.get("/api/resource-auth/bindings/" + issued["binding_id"]).json()["status"] == "revoked"
@@ -83,7 +58,7 @@ def test_stats_include_reads_writes_refusals_and_429_for_owner_and_admin(
     from lockbot.backend.app.resource_api.traffic import credential_budget
 
     bot_id, alice, _bob, issued = setup_usage(client, fakeim_api, monkeypatch)
-    path = f"/api/bots/{bot_id}/usage-declarations"
+    path = f"/api/bots/{bot_id}/resources"
     assert client.get(path, headers=alice).status_code == 200
     assert client.post(f"/api/bots/{bot_id}/commands", headers=alice, json={"command": "kickout n1"}).status_code == 403
     credential_budget.read_limit = 1
@@ -146,34 +121,3 @@ def test_health_does_not_install_an_extra_permission_mode(client):
         # Existing authentication/request validation replaces the removed global deny.
         assert response.status_code in (401, 403, 422)
         assert response.json().get("code") != "test_deployment_restriction"
-
-
-def test_shared_key_can_declare_two_distinct_agents_and_tasks(client, fakeim_api, monkeypatch):
-    bot_id, alice, bob, _ = setup_usage(client, fakeim_api, monkeypatch)
-    path = f"/api/bots/{bot_id}"
-    assert (
-        client.post(
-            path + "/commands", headers=alice, json={"command": "lock n2 1h", "agent_label": "compiler"}
-        ).status_code
-        == 200
-    )
-    for resource, agent, purpose in [("n1", "trainer", "train model"), ("n2", "compiler", "build project")]:
-        response = client.put(
-            path + "/usage-declarations/" + resource, headers=alice, json={"purpose": purpose, "agent_label": agent}
-        )
-        assert response.status_code == 200
-    public = client.get(path + "/resources", headers=bob)
-    assert "train model" not in public.text and "trainer" not in public.text
-    result = client.get(path + "/resources", headers=alice)
-    assert result.status_code == 200
-    usage = {r["id"]: r["holders"][0]["usage"] for r in result.json()["resources"]}
-    assert usage["n1"]["agent_label"] == "trainer" and usage["n1"]["purpose"] == "train model"
-    assert usage["n2"]["agent_label"] == "compiler" and usage["n2"]["purpose"] == "build project"
-    assert usage["n1"]["actor"] == usage["n2"]["actor"]
-    assert usage["n1"]["authorization_label"] == usage["n2"]["authorization_label"] == "agent"
-    assert (
-        client.post(
-            path + "/commands", headers=alice, json={"command": "query", "agent_label": "fake\nadmin"}
-        ).status_code
-        == 422
-    )

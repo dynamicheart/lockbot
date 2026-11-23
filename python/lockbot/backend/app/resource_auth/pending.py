@@ -77,8 +77,6 @@ class PendingBinding:
     created_at: datetime
     #: Per-source cap key (the creating client's address). Not an identity.
     source: str = ""
-    #: Agent-declared label, carried through to the durable row for the chat listing.
-    label: str | None = None
     credential_encrypted: str | None = None
     purpose: str = "bind"
     principal_id: str | None = None
@@ -101,7 +99,6 @@ class PendingBindingStore(ABC):
         credential_digest: str,
         credential_encrypted: str | None = None,
         source: str = "",
-        label: str | None = None,
         purpose: str = "bind",
         principal_id: str | None = None,
         principal_generation: int | None = None,
@@ -199,7 +196,6 @@ class InProcessPendingBindingStore(PendingBindingStore):
         credential_digest: str,
         credential_encrypted: str | None = None,
         source: str = "",
-        label: str | None = None,
         purpose: str = "bind",
         principal_id: str | None = None,
         principal_generation: int | None = None,
@@ -216,7 +212,6 @@ class InProcessPendingBindingStore(PendingBindingStore):
             bind_expires_at=now + timedelta(seconds=window_seconds),
             created_at=now,
             source=source,
-            label=label,
             credential_encrypted=credential_encrypted,
             purpose=purpose,
             principal_id=principal_id,

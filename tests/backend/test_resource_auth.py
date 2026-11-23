@@ -128,7 +128,7 @@ class TestConfirmation:
         assert row.platform == PLATFORM
         assert row.external_user_id == ACTOR
         assert row.bound_bot_id == bot_id
-        assert row.label == "ci-runner"
+        assert row.label is None
         assert row.credential_digest == credentials.digest_credential(issued["credential"])
         assert row.revoked_at is None
 
@@ -420,23 +420,27 @@ class TestPrincipalSeparation:
 
 
 class TestChatRevocation:
-    def test_bindings_lists_only_the_senders_own(self, issued, bot_id, chat_hook, client):
+    def test_bindings_lists_only_the_senders_own(self, issued, bot_id, chat_hook, client, db_session):
         _confirm(chat_hook, issued, bot_id)
         other = client.post("/api/resource-auth/bindings", json={"label": "bobs-agent"}).json()
         chat_hook("bind", other["bind_code"], bot_id=bot_id, actor=OTHER_ACTOR)
 
+        for public_id, label in ((issued["binding_id"], "old-alice-binding"), (other["binding_id"], "old-bob-binding")):
+            db_session.query(ResourceBinding).filter_by(public_id=public_id).one().label = label
+        db_session.commit()
+
         mine = chat_hook("bindings", bot_id=bot_id)
-        assert "ci-runner" in mine
+        assert "old-alice-binding" in mine
         assert credentials.short_id(issued["binding_id"]) not in mine
         assert credentials.short_id(other["binding_id"]) not in mine
-        assert "bobs-agent" not in mine
+        assert "old-bob-binding" not in mine
 
     def test_bindings_is_empty_for_a_sender_with_none(self, bot_id, chat_hook):
         assert credentials.short_id("x" * 20) not in chat_hook("bindings", bot_id=bot_id)
 
-    def test_listing_shows_label_and_bot(self, active, bot_id, chat_hook):
+    def test_listing_shows_bot_and_empty_label_for_new_binding(self, active, bot_id, chat_hook):
         listed = chat_hook("bindings", bot_id=bot_id)
-        assert "ci-runner" in listed
+        assert "ci-runner" not in listed
         assert f"机器人 ID：{bot_id}" in listed
         assert "agentbot" not in listed
 

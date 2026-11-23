@@ -17,8 +17,8 @@ from backend.test_scoped_monitoring import hit
 
 
 @pytest.fixture
-def prepared(client, api, db_session, monkeypatch):
-    _register(client, api, monkeypatch)
+def prepared(client, api, db_session, monkeypatch, seed_legacy_task_details):
+    _register(client, api, monkeypatch, seed_legacy_task_details)
     owner = db_session.get(User, db_session.get(Bot, api["bot_id"]).user_id)
     owner.role = "super_admin"
     binding = db_session.query(ResourceBinding).filter_by(bound_bot_id=api["bot_id"]).first()
@@ -36,6 +36,17 @@ def prepared(client, api, db_session, monkeypatch):
     )
     db_session.commit()
     from lockbot.backend.app.bots.router import _get_log_file
+    from lockbot.backend.app.resource_api.event_log import write_event
+    from lockbot.backend.app.resource_auth.dependencies import ResourceActor
+
+    write_event(
+        actor=ResourceActor(
+            binding.platform, binding.external_user_id, binding.bound_bot_id, binding.id, binding.public_id
+        ),
+        event={"operation": "command", "command": "lock n1 1h", "purpose": "private-project-detail"},
+        status=200,
+        duration_ms=1,
+    )
 
     Path(_get_log_file(api["bot_id"])).write_text(
         json.dumps(

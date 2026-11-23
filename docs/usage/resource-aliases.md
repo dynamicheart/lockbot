@@ -1,6 +1,6 @@
 # Agent 读取和验证节点备注
 
-节点 alias 是同一机器人内所有用户可见的公共标签，不是个人任务说明、用途分类或 Agent 名称。详细任务继续使用 `purpose`、`agent_label` 和 usage declarations，不能把私密内容写进 alias。
+节点 alias 是同一机器人内所有用户可见的公共标签，不是个人任务说明、用途分类或 Agent 名称。资源操作可以附带预设 `task_category`。请避免在节点标签中填写私密内容。
 
 通过当前机器人的个人 Key 调用 `GET /api/agent/resources`，读取 `resources[].alias`。未配置或已清空时返回空字符串。NODE、QUEUE 的 alias 位于节点；DEVICE、QUEUE_DEVICE 的 alias 也只位于父节点，不代表某一张卡的独立备注。操作仍使用原始节点 `id`，不把 alias 当作节点标识。
 

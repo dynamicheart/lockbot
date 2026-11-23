@@ -12,16 +12,15 @@ def test_discovery_and_public_schema_use_key_scoped_routes(client, api):
     for name, suffix in (
         ("resources", "resources"),
         ("commands", "commands"),
-        ("usage_declarations", "usage-declarations"),
     ):
         assert context["links"][name] == "/api/agent/" + suffix
     public = client.get("/api/public-openapi.json").json()["paths"]
     complete = client.get("/openapi.json").json()["paths"]
+    assert "usage_declarations" not in context["links"]
+    assert not any("usage-declarations" in path for path in complete)
     for suffix, methods in (
         ("resources", ["get"]),
         ("commands", ["post"]),
-        ("usage-declarations", ["get"]),
-        ("usage-declarations/{resource_id}", ["put", "delete"]),
     ):
         assert "/api/bots/{bot_id}/" + suffix not in public
         for method in methods:
@@ -40,7 +39,13 @@ def test_canonical_acquisition_and_legacy_readback_share_state(client, api):
     assert snapshot.headers["cache-control"] == "no-store"
     assert snapshot.json()["bot_id"] == api["bot_id"]
     old = client.get(f"/api/bots/{api['bot_id']}/resources", headers=headers)
-    assert old.json()["resources"] == snapshot.json()["resources"]
+    legacy_resources = old.json()["resources"]
+    canonical_resources = snapshot.json()["resources"]
+    for resources in (legacy_resources, canonical_resources):
+        for resource in resources:
+            for holder in resource["holders"]:
+                holder.pop("remaining_seconds")
+    assert legacy_resources == canonical_resources
     release = client.post(f"/api/bots/{api['bot_id']}/commands", headers=headers, json={"command": "free n1"})
     assert release.status_code == 200
     assert not client.get("/api/agent/resources", headers=headers).json()["resources"][0]["holders"]
@@ -51,9 +56,6 @@ def test_canonical_acquisition_and_legacy_readback_share_state(client, api):
     [
         ("resources", "get", None),
         ("commands", "post", {"command": "query"}),
-        ("usage-declarations", "get", None),
-        ("usage-declarations/n1", "put", {"purpose": "test"}),
-        ("usage-declarations/n1", "delete", None),
     ],
 )
 def test_canonical_routes_reject_missing_wrong_and_revoked_credentials(client, api, suffix, method, payload):
@@ -72,47 +74,33 @@ def test_access_switch_and_command_allowlist_still_apply(client, api):
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "command_not_allowed"
     client.put(f"/api/bots/{api['bot_id']}/resource-auth", headers=api["auth_header"], json={"enabled": False})
-    for path in ("resources", "usage-declarations"):
-        response = client.get("/api/agent/" + path, headers=api["headers"])
-        assert response.status_code == 403
-        assert response.json()["detail"]["code"] == "agent_access_disabled"
+    response = client.get("/api/agent/resources", headers=api["headers"])
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "agent_access_disabled"
 
 
 def test_validation_does_not_echo_private_input(client, api):
     secret = "private input must not be reflected"
-    for method, path, body in (
-        ("post", "commands", {"command": "query", "bot_id": secret}),
-        ("put", "usage-declarations/n1", {"purpose": secret * 100}),
-    ):
-        response = client.request(method, "/api/agent/" + path, headers=api["headers"], json=body)
-        assert response.status_code == 422
-        assert secret not in response.text
-        assert response.headers["cache-control"] == "no-store"
+    response = client.post("/api/agent/commands", headers=api["headers"], json={"command": "query", "bot_id": secret})
+    assert response.status_code == 422
+    assert secret not in response.text
+    assert response.headers["cache-control"] == "no-store"
 
 
-def test_usage_privacy_and_conditional_cleanup_share_legacy_state(client, api, monkeypatch):
-    monkeypatch.setattr("lockbot.backend.app.resource_api.usage.bot_manager", api["manager"])
+@pytest.mark.parametrize("prefix", ["/api/agent", "/api/bots/{bot_id}"])
+def test_usage_declaration_routes_have_been_retired(client, api, db_session, prefix):
+    from lockbot.backend.app.resource_api.usage import UsageDeclaration
+
+    prefix = prefix.format(bot_id=api["bot_id"])
     headers = api["headers"]
-    assert client.post("/api/agent/commands", headers=headers, json={"command": "lock n1 10m"}).status_code == 200
-    saved = client.put(
-        "/api/agent/usage-declarations/n1",
-        headers=headers,
-        json={"purpose": "private task", "task_category": "code_review"},
-    )
-    assert saved.status_code == 200, saved.text
-    revision = saved.json()["revision"]
-    old = client.get(f"/api/bots/{api['bot_id']}/usage-declarations", headers=headers)
-    own = client.get("/api/agent/usage-declarations", headers=headers)
-    assert own.json() == old.json()
-    assert own.json()["items"][0]["purpose"] == "private task"
-    others = client.get("/api/agent/usage-declarations", headers=api["other_headers"])
-    assert "private task" not in others.text
-    rejected = client.delete("/api/agent/usage-declarations/n1", headers={**headers, "If-Match": "stale"})
-    assert rejected.status_code == 412
-    deleted = client.delete("/api/agent/usage-declarations/n1", headers={**headers, "If-Match": revision})
-    assert deleted.status_code == 200, deleted.text
-    assert not client.get("/api/agent/usage-declarations", headers=headers).json()["items"]
-    assert client.get("/api/agent/resources", headers=headers).json()["resources"][0]["holders"]
+    assert client.post(prefix + "/commands", headers=headers, json={"command": "lock n1 1h"}).status_code == 200
+    for method, suffix in [("GET", ""), ("PUT", "/n1"), ("DELETE", "/n1")]:
+        body = {"purpose": "private task", "agent_label": "private agent"} if method == "PUT" else None
+        response = client.request(method, prefix + "/usage-declarations" + suffix, headers=headers, json=body)
+        assert response.status_code == 404
+        assert "private task" not in response.text
+    assert db_session.query(UsageDeclaration).count() == 0
+    assert client.get(prefix + "/resources", headers=headers).json()["resources"][0]["holders"]
 
 
 def test_canonical_reads_share_credential_budget_and_no_store(client, api, monkeypatch):

@@ -15,7 +15,7 @@ pytestmark = pytest.mark.parametrize("api", ["QUEUE_DEVICE"], indirect=True)
 
 @pytest.fixture
 def cards(api, monkeypatch):
-    for module in ("usage", "views", "operator"):
+    for module in ("views", "operator"):
         monkeypatch.setattr(f"lockbot.backend.app.resource_api.{module}.bot_manager", api["manager"])
     return api
 
@@ -38,25 +38,25 @@ def state(client, cards, other=False):
     return response.json()
 
 
-def test_card_discovery_and_same_person_independent_agent_tasks(client, cards):
+def test_card_discovery_and_same_person_independent_task_categories(client, cards):
     response = state(client, cards)
     assert response["bot_type"] == "QUEUE_DEVICE"
     assert "book" in response["supported_operations"] and "slock" not in response["supported_operations"]
     assert "dev0" in response["command_examples"]["book"]
-    command(client, cards, "lock n1 dev0 1h", agent_label="dev-agent", purpose="Feature development")
-    command(client, cards, "lock n1 dev1 30m", agent_label="test-agent", purpose="Regression")
+    command(client, cards, "lock n1 dev0 1h", agent_label="dev-agent", task_category="operator_development")
+    command(client, cards, "lock n1 dev1 30m", agent_label="test-agent", task_category="unit_testing")
     devices = state(client, cards)["resources"][0]["devices"]
     assert [d["resource_id"] for d in devices] == ["n1:dev0", "n1:dev1"]
-    assert [d["holders"][0]["usage"]["purpose"] for d in devices] == ["Feature development", "Regression"]
-    assert [d["holders"][0]["usage"]["agent_label"] for d in devices] == ["dev-agent", "test-agent"]
+    assert [d["holders"][0]["usage"]["task_category"] for d in devices] == ["operator_development", "unit_testing"]
+    assert [d["holders"][0]["usage"]["agent_label"] for d in devices] == [None, None]
     command(client, cards, "free n1 dev0")
     devices = state(client, cards)["resources"][0]["devices"]
-    assert not devices[0]["holders"] and devices[1]["holders"][0]["usage"]["purpose"] == "Regression"
+    assert not devices[0]["holders"] and devices[1]["holders"][0]["usage"]["task_category"] == "unit_testing"
 
 
-def test_card_booking_notify_claim_carries_purpose_and_uses_claim_deadline(client, cards):
+def test_card_booking_notify_claim_carries_category_and_uses_claim_deadline(client, cards):
     command(client, cards, "lock n1 dev0 1h")
-    command(client, cards, "book n1 dev0 30m", other=True, agent_label="queue-agent", purpose="After development")
+    command(client, cards, "book n1 dev0 30m", other=True, task_category="performance_testing")
     response = state(client, cards, other=True)
     assert response["next_event_kind"] == "node_frees"
     assert not response["resources"][0]["devices"][0]["claimable_by_you"]
@@ -66,12 +66,12 @@ def test_card_booking_notify_claim_carries_purpose_and_uses_claim_deadline(clien
     device = response["resources"][0]["devices"][0]
     assert response["next_event_kind"] == "claim_window_end"
     assert device["claimable_by_you"] and device["claim_command"] == "lock n1 dev0"
-    assert device["booking_list"][0]["usage"]["purpose"] == "After development"
+    assert device["booking_list"][0]["usage"]["task_category"] == "performance_testing"
     assert not any(key.startswith("_") for key in device)
     command(client, cards, device["claim_command"], other=True)
     device = state(client, cards, other=True)["resources"][0]["devices"][0]
     assert device["holders"][0]["duration_seconds"] == 1800
-    assert device["holders"][0]["usage"]["agent_label"] == "queue-agent"
+    assert device["holders"][0]["usage"]["task_category"] == "performance_testing"
 
 
 def test_v1_card_renewal_notifies_chat_waiter_even_when_hook_fails(client, cards, monkeypatch):
@@ -99,8 +99,8 @@ def test_v1_card_renewal_notifies_chat_waiter_even_when_hook_fails(client, cards
 
 
 def test_op_card_release_keeps_sibling_holding_and_waiting_task(client, cards, operator):
-    command(client, cards, "lock n1 dev0,1 1h", purpose="Development")
-    command(client, cards, "book n1 dev0 30m", other=True, purpose="Regression")
+    command(client, cards, "lock n1 dev0,1 1h", task_category="operator_development")
+    command(client, cards, "book n1 dev0 30m", other=True, task_category="unit_testing")
     base = f"/api/bots/{cards['bot_id']}"
     before = copy.deepcopy(cards["bot"].state.bot_state)
     bad = client.post(
@@ -157,24 +157,11 @@ def test_op_holding_version_refuses_release_after_renewal_or_reacquisition(clien
     assert get_holdings(include_versions=True)[1][0]["holding_version"] == sibling["holding_version"]
 
 
-def test_manual_declarations_require_exact_canonical_card_ownership(client, cards, db_session):
-    command(client, cards, "lock n1 dev0 1h", purpose="Original")
-    path = f"/api/bots/{cards['bot_id']}/usage-declarations/"
-    for resource in ["n1:dev1", "n1:dev00", "n1:dev０"]:
-        assert client.put(path + resource, headers=cards["headers"], json={"purpose": "Wrong"}).status_code == 409
-    assert (
-        client.put(path + "n1:dev0", headers=cards["other_headers"], json={"purpose": "Other user"}).status_code == 409
-    )
-    assert client.put(path + "n1:dev0", headers=cards["headers"], json={"purpose": "Updated"}).status_code == 200
-    db_session.expire_all()
-    assert db_session.query(UsageDeclaration).one().purpose == "Updated"
-
-
 def test_card_readonly_view_includes_full_queue_and_omits_caller_fields(client, cards):
     from urllib.parse import parse_qs, urlsplit
 
-    command(client, cards, "lock n1 dev0 1h", purpose="Develop")
-    command(client, cards, "book n1 dev0 30m", other=True, purpose="Regression")
+    command(client, cards, "lock n1 dev0 1h", task_category="operator_development")
+    command(client, cards, "book n1 dev0 30m", other=True, task_category="unit_testing")
     context = client.get("/api/agent/context", headers=cards["headers"]).json()
     fragment = urlsplit(context["view_url"]).fragment
     token = fragment.rsplit("/", 1)[1] if fragment.startswith("/r/") else parse_qs(fragment.split("?", 1)[1])["view"][0]
@@ -192,13 +179,13 @@ def test_native_card_release_cleanup_keeps_sibling_task(client, cards, db_sessio
 
     monkeypatch.setattr(usage_cleanup, "SessionLocal", session_factory)
     monkeypatch.setattr(usage_cleanup, "bot_manager", cards["manager"])
-    command(client, cards, "lock n1 dev0 1h", purpose="First")
-    command(client, cards, "lock n1 dev1 1h", purpose="Second")
+    command(client, cards, "lock n1 dev0 1h", task_category="operator_development")
+    command(client, cards, "lock n1 dev1 1h", task_category="unit_testing")
     cards["bot"].unlock("alice", "free n1 dev0")
     assert usage_cleanup.cleanup_usage_once()["removed"] == 1
     db_session.expire_all()
     row = db_session.query(UsageDeclaration).one()
-    assert row.resource_id == "n1:dev1" and row.purpose == "Second"
+    assert row.resource_id == "n1:dev1" and row.task_category == "unit_testing"
 
 
 def test_state_edit_normalizes_card_queues_without_changing_legacy_device_shape(cards):

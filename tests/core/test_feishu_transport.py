@@ -185,8 +185,6 @@ def test_agent_notification_uses_single_configured_group_without_mentions(monkey
         command="lock node_a 5m",
         actor_id="mock_user_a",
         command_word="lock",
-        agent_label="codex",
-        purpose="Model performance test",
         task_category="performance_testing",
     )
     assert sent[0]["receive_id"] == "oc_demo"
