@@ -419,11 +419,32 @@
               :save="datasourceActions.save"
               :authorize="datasourceActions.authorize"
             />
+            <el-button
+              v-if="canEdit"
+              size="small"
+              link
+              type="primary"
+              @click="openDatasourceCredential"
+            >
+              {{ $t('configurationCredentials.configureWithAgent') }}
+            </el-button>
             <span v-if="!canEdit">{{
               datasourceConfig?.name || $t('utilization.notConfigured')
             }}</span>
           </el-descriptions-item>
-          <el-descriptions-item v-if="canEdit" :span="2" :label="$t('nodeInformation.title')">
+          <el-descriptions-item v-if="canEdit" :span="2">
+            <template #label>
+              {{ $t('nodeInformation.title') }}
+              <el-tooltip
+                :content="$t('nodeInformation.help')"
+                :trigger="['hover', 'focus']"
+                placement="top"
+              >
+                <el-icon class="help-icon" tabindex="0" :aria-label="$t('nodeInformation.help')">
+                  <QuestionFilled />
+                </el-icon>
+              </el-tooltip>
+            </template>
             <NodeInformationEditor
               :key="bot.id"
               :bot-id="bot.id"
@@ -1079,6 +1100,13 @@ function formatDuration(seconds) {
 // - admin: can only VIEW other users' bots, cannot start/stop/edit/delete
 // - user: can only operate own bots, no transfer
 const canEdit = computed(() => authStore.canEditBot(bot.value))
+
+function openDatasourceCredential() {
+  router.push({
+    name: 'ApiCredentials',
+    query: { bot: String(bot.value.id), scope: 'datasource:write' },
+  })
+}
 async function loadAgentSummary() {
   const target = captureBot()
   if (!target || (!canEdit.value && !authStore.isAdmin)) return

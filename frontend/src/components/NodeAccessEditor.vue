@@ -3,33 +3,47 @@
     <p>{{ t('nodeAccess.purpose') }}</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <template v-if="inventory">
-      <div class="mapping-header">
-        <span>{{ t('nodeAccess.help') }}</span>
-        <el-button size="small" @click="copyPrompt">{{ t('nodeAccess.copyPrompt') }}</el-button>
-      </div>
-      <div class="mapping">
-        <span>{{ t('nodeAccess.mapping') }}</span>
-        <JsonMappingEditor
-          v-model="input"
-          :label="t('nodeAccess.mapping')"
-          :disabled="busy"
-          :example="example"
-          @update:model-value="onEdit"
-        />
-      </div>
-      <div v-if="preview" role="status" class="preview">
-        <p>{{ t('nodeAccess.review') }}</p>
-        <ul>
-          <li v-for="node in [...preview.added, ...preview.changed]" :key="node">
-            <strong>{{ node }}</strong>
-            <template v-if="inventory.nodes[node]">
-              {{ formatNodeAccess(inventory.nodes[node]) }} →
-            </template>
-            {{ formatNodeAccess(preview.nodes[node]) }}
-          </li>
-        </ul>
-        <p v-if="!changed">{{ t('nodeAccess.noChanges') }}</p>
-      </div>
+      <details class="manual-import">
+        <summary>{{ t('nodeInformation.manualImport') }}</summary>
+        <div class="mapping">
+          <span>{{ t('nodeAccess.mapping') }}</span>
+          <JsonMappingEditor
+            v-model="input"
+            :label="t('nodeAccess.mapping')"
+            :disabled="busy"
+            :example="example"
+            @update:model-value="onEdit"
+          />
+        </div>
+        <div v-if="preview" role="status" class="preview">
+          <p>{{ t('nodeAccess.review') }}</p>
+          <ul>
+            <li v-for="node in [...preview.added, ...preview.changed]" :key="node">
+              <strong>{{ node }}</strong>
+              <template v-if="inventory.nodes[node]">
+                {{ formatNodeAccess(inventory.nodes[node]) }} →
+              </template>
+              {{ formatNodeAccess(preview.nodes[node]) }}
+            </li>
+          </ul>
+          <p v-if="!changed">{{ t('nodeAccess.noChanges') }}</p>
+        </div>
+        <div class="actions">
+          <el-button :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</el-button>
+          <el-button
+            v-if="!preview"
+            type="primary"
+            :loading="busy"
+            :disabled="!input.trim() || !inventory"
+            @click="validate"
+          >
+            {{ t('nodeAccess.validate') }}
+          </el-button>
+          <el-button v-else type="primary" :loading="busy" :disabled="!changed" @click="save">
+            {{ t('nodeAccess.save') }}
+          </el-button>
+        </div>
+      </details>
       <details v-if="Object.keys(inventory.nodes).length" class="preview">
         <summary>{{ t('nodeAccess.saved') }}</summary>
         <ul class="saved-nodes">
@@ -44,21 +58,6 @@
         </ul>
       </details>
     </template>
-    <div class="actions">
-      <el-button :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</el-button>
-      <el-button
-        v-if="!preview"
-        type="primary"
-        :loading="busy"
-        :disabled="!input.trim() || !inventory"
-        @click="validate"
-      >
-        {{ t('nodeAccess.validate') }}
-      </el-button>
-      <el-button v-else type="primary" :loading="busy" :disabled="!changed" @click="save">
-        {{ t('nodeAccess.save') }}
-      </el-button>
-    </div>
   </section>
 </template>
 
@@ -67,14 +66,12 @@ import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
-import { useHelpers } from '../utils/helpers'
 import { formatNodeAccess } from '../utils/nodeAccess'
 
 const props = defineProps({ botId: { type: Number, required: true } })
 const emit = defineEmits(['changed', 'close'])
 const JsonMappingEditor = defineAsyncComponent(() => import('./JsonMappingEditor.vue'))
 const { t } = useI18n()
-const { copyText } = useHelpers()
 const busy = ref(false)
 const error = ref('')
 const input = ref('')
@@ -97,15 +94,6 @@ const example = [
   '  }',
   '}',
 ].join('\n')
-
-function copyPrompt() {
-  copyText(
-    t('nodeAccess.prompt', {
-      nodeIds: JSON.stringify(inventory.value.node_ids),
-      example,
-    })
-  )
-}
 
 async function run(action, message) {
   if (busy.value) return
@@ -174,6 +162,13 @@ async function remove(node) {
 </script>
 
 <style scoped>
+.manual-import {
+  margin-top: 12px;
+}
+.manual-import > summary {
+  cursor: pointer;
+  margin-bottom: 10px;
+}
 .actions {
   margin-top: 20px;
   text-align: right;
@@ -182,12 +177,6 @@ async function remove(node) {
   display: grid;
   gap: 8px;
   margin-top: 16px;
-}
-.mapping-header {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 12px;
 }
 .preview {
   margin-top: 16px;

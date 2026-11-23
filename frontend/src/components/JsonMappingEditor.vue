@@ -8,7 +8,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { Compartment, EditorState, EditorSelection } from '@codemirror/state'
-import { EditorView, keymap, placeholder } from '@codemirror/view'
+import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, insertNewlineAndIndent } from '@codemirror/commands'
 import { indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { json } from '@codemirror/lang-json'
@@ -17,7 +17,7 @@ const props = defineProps({
   modelValue: { type: String, default: '' },
   example: { type: String, required: true },
   label: { type: String, required: true },
-  rows: { type: Number, default: 7 },
+  rows: { type: Number, default: 4 },
   disabled: Boolean,
 })
 const emit = defineEmits(['update:modelValue'])
@@ -52,7 +52,6 @@ onMounted(() => {
       history(),
       syntaxHighlighting(defaultHighlightStyle),
       EditorView.lineWrapping,
-      placeholder(props.example),
       editable.of(editing()),
       EditorState.changeFilter.of((transaction) => transaction.newDoc.length <= 131072),
       EditorView.contentAttributes.of({
@@ -108,9 +107,6 @@ onBeforeUnmount(() => view?.destroy())
 }
 .json-mapping-editor :deep(.cm-focused) {
   outline: 1px solid var(--el-color-primary);
-}
-.json-mapping-editor :deep(.cm-placeholder) {
-  color: var(--el-text-color-placeholder);
 }
 .json-mapping-editor small {
   display: block;

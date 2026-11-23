@@ -1,6 +1,6 @@
 """Service-level coverage of user-issued, operation-scoped configuration credentials."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from lockbot.backend.app import main
@@ -15,6 +15,7 @@ from backend.test_bots import _sample_bot
 ISSUE = "/api/configuration-credentials"
 NODE = "node_access:write"
 SOURCE = "datasource:write"
+INVENTORY = "node_inventory:write"
 
 
 def bot(client, headers, name):
@@ -35,6 +36,50 @@ def access(bot_id):
 
 def preview(client, bot_id, headers, data):
     return client.post(access(bot_id) + "/preview", headers=headers, json=data).raise_for_status().json()
+
+
+def test_inventory_upload_uses_bot_scope_and_keeps_other_observations(client, auth_header, admin_header):
+    target = bot(client, auth_header, "inventory target")
+    other = bot(client, auth_header, "other")
+    key = bearer(credentials(client, auth_header, [target], [INVENTORY]).raise_for_status().json()["credential"])
+    snapshot = {
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "scope": "host",
+        "accelerators": [{"model": "Example Device", "count": 4, "memory_bytes_per_card": 96 * 2**30}],
+        "memory_bytes": 512 * 2**30,
+        "cpu_arch": "x86_64",
+    }
+
+    def proposal(node, record):
+        return {"scope": INVENTORY, "configuration": {"version": 1, "nodes": {node: record}}}
+
+    def upload(node, record):
+        body = proposal(node, record)
+        planned = preview(client, target, key, body)
+        assert client.put(access(target), json={**body, "receipt": planned["receipt"]}, headers=key).status_code == 200
+
+    assert client.get(access(other), headers=key).status_code == 403
+    assert (
+        client.post(access(target) + "/preview", headers=key, json={"scope": SOURCE, "configuration": None}).status_code
+        == 403
+    )
+    assert client.post(access(target) + "/preview", headers=key, json=proposal("unknown", snapshot)).status_code == 422
+    assert (
+        client.post(
+            access(target) + "/preview", headers=key, json=proposal("node1", {**snapshot, "private": 1})
+        ).status_code
+        == 422
+    )
+    upload("node1", snapshot)
+    upload("node2", snapshot)
+    upload("node1", {**snapshot, "cpu_arch": "ignored"})
+    route = f"/api/bots/{target}/node-inventory"
+    assert client.get(route, headers=admin_header).status_code == 403
+    doc = client.get(route, headers=auth_header).raise_for_status().json()
+    assert doc["node_ids"] == ["node1", "node2"]
+    assert set(doc["nodes"]) == {"node1", "node2"}
+    assert doc["nodes"]["node1"]["cpu_arch"] == "x86_64"
+    assert client.get("/api/public-docs/configuration/AGENTS.md").raise_for_status().text.count(INVENTORY) == 2
 
 
 def test_existing_credentials_survive_the_additive_deletion_migration(monkeypatch):

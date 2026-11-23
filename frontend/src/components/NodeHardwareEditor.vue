@@ -2,27 +2,40 @@
   <section>
     <p v-if="errorKey" role="alert">{{ t(errorKey) }}</p>
     <template v-if="inventory">
-      <div class="hardware-toolbar">
-        <span>{{ t('nodeHardware.help') }}</span>
-        <el-button size="small" @click="copyPrompt">{{ t('nodeAccess.copyPrompt') }}</el-button>
-      </div>
-      <JsonMappingEditor
-        v-model="input"
-        :label="t('nodeHardware.mapping')"
-        :disabled="busy"
-        :example="example"
-        @update:model-value="resetPreview"
-      />
-      <p v-if="preview && !changed" role="status">{{ t('nodeAccess.noChanges') }}</p>
-      <section v-if="changed" aria-live="polite">
-        <p>{{ t('nodeHardware.review') }}</p>
-        <ul>
-          <li v-for="(accelerators, node) in preview" :key="node">
-            <strong>{{ node }}</strong>
-            {{ formatHardware(accelerators) || t('nodeHardware.removed') }}
-          </li>
-        </ul>
-      </section>
+      <details class="manual-import">
+        <summary>{{ t('nodeInformation.manualImport') }}</summary>
+        <JsonMappingEditor
+          v-model="input"
+          :label="t('nodeHardware.mapping')"
+          :disabled="busy"
+          :example="example"
+          @update:model-value="resetPreview"
+        />
+        <p v-if="preview && !changed" role="status">{{ t('nodeAccess.noChanges') }}</p>
+        <section v-if="changed" aria-live="polite">
+          <p>{{ t('nodeHardware.review') }}</p>
+          <ul>
+            <li v-for="(accelerators, node) in preview" :key="node">
+              <strong>{{ node }}</strong>
+              {{ formatHardware(accelerators) || t('nodeHardware.removed') }}
+            </li>
+          </ul>
+        </section>
+        <div class="actions">
+          <el-button :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</el-button>
+          <el-button
+            v-if="!preview"
+            type="primary"
+            :loading="busy"
+            :disabled="!input.trim() || !inventory"
+            @click="validate"
+            >{{ t('nodeAccess.validate') }}</el-button
+          >
+          <el-button v-else type="primary" :loading="busy" :disabled="!changed" @click="save">
+            {{ t('nodeAccess.save') }}
+          </el-button>
+        </div>
+      </details>
       <details v-if="Object.keys(inventory.nodes).length" class="hardware-saved">
         <summary>{{ t('nodeHardware.saved') }}</summary>
         <ul>
@@ -32,20 +45,6 @@
         </ul>
       </details>
     </template>
-    <div class="actions">
-      <el-button :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</el-button>
-      <el-button
-        v-if="!preview"
-        type="primary"
-        :loading="busy"
-        :disabled="!input.trim() || !inventory"
-        @click="validate"
-        >{{ t('nodeAccess.validate') }}</el-button
-      >
-      <el-button v-else type="primary" :loading="busy" :disabled="!changed" @click="save">
-        {{ t('nodeAccess.save') }}
-      </el-button>
-    </div>
   </section>
 </template>
 
@@ -54,13 +53,11 @@ import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
-import { useHelpers } from '../utils/helpers'
 
 const JsonMappingEditor = defineAsyncComponent(() => import('./JsonMappingEditor.vue'))
 const props = defineProps({ botId: { type: Number, required: true } })
 const emit = defineEmits(['close'])
 const { t } = useI18n()
-const { copyText } = useHelpers()
 const busy = ref(false)
 const errorKey = ref('')
 const input = ref('')
@@ -111,10 +108,6 @@ onMounted(() =>
   }, 'nodeHardware.readFailed')
 )
 
-function copyPrompt() {
-  copyText(t('nodeHardware.prompt', { nodeIds: JSON.stringify(inventory.value.node_ids), example }))
-}
-
 function validate() {
   try {
     JSON.parse(input.value)
@@ -139,17 +132,16 @@ function save() {
 </script>
 
 <style scoped>
+.manual-import {
+  margin-top: 12px;
+}
+.manual-import > summary {
+  cursor: pointer;
+  margin-bottom: 10px;
+}
 .actions {
   margin-top: 20px;
   text-align: right;
-}
-.hardware-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 12px;
 }
 .hardware-saved {
   margin-top: 12px;

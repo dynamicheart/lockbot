@@ -30,12 +30,14 @@ from lockbot.backend.app.bots.node_access import (
     saved_node_access,
     serialize_node_access,
 )
-from lockbot.backend.app.bots.router import _owned_bot
+from lockbot.backend.app.bots.node_hardware import saved_node_hardware
+from lockbot.backend.app.bots.node_inventory import inventory_document, update_inventory
+from lockbot.backend.app.bots.router import _owned_bot, _require_bot_owner
 from lockbot.backend.app.database import Base, get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_auth.authority import authority_guard
 
-Scope = Literal["node_access:write", "datasource:write"]
+Scope = Literal["node_access:write", "datasource:write", "node_inventory:write"]
 MAX_TTL = 7 * 86400
 MAX_CONFIGURATION_BYTES = 256 * 1024
 _TOKEN = re.compile(r"lbc1\.([A-Za-z0-9_-]{22})\.[A-Za-z0-9_-]{43}")
@@ -96,7 +98,7 @@ class Lifetime(BaseModel):
 class CreateCredential(Lifetime):
     label: str = Field(min_length=1, max_length=64)
     bot_ids: list[StrictInt] = Field(min_length=1, max_length=100)
-    scopes: list[Scope] = Field(min_length=1, max_length=2)
+    scopes: list[Scope] = Field(min_length=1, max_length=3)
 
     @field_validator("label")
     @classmethod
@@ -403,6 +405,8 @@ def _inventory(bot):
 def _current(bot, scope):
     if scope == "datasource:write":
         return public_datasource(bot)
+    if scope == "node_inventory:write":
+        return inventory_document(bot, _inventory(bot)["node_ids"])
     nodes = saved_node_access(bot)
     return {"version": mapping_version(nodes), "nodes": nodes}
 
@@ -412,6 +416,13 @@ def _proposed(bot, change, current):
     if len(json.dumps(proposed).encode()) > MAX_CONFIGURATION_BYTES:
         _deny(413, "configuration_too_large")
     inventory = _inventory(bot)
+    if change.scope == "node_inventory:write":
+        if change.remove_node_ids:
+            _deny(422, "configuration_invalid")
+        try:
+            return update_inventory(proposed, current, inventory["node_ids"])
+        except (ValidationError, ValueError):
+            _deny(422, "configuration_invalid")
     if change.scope == "datasource:write":
         if change.remove_node_ids:
             _deny(422, "configuration_invalid")
@@ -465,6 +476,21 @@ def inspect_configuration(bot_id: int, request: Request, response: Response, db:
         return payload
 
 
+@router.get("/api/bots/{bot_id}/node-inventory", include_in_schema=False)
+def get_node_inventory(
+    bot_id: int, response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    bot = _require_bot_owner(bot_id, user, db, "view node inventory")
+    response.headers["Cache-Control"] = "no-store"
+    ids = _inventory(bot)["node_ids"]
+    return {
+        "node_ids": ids,
+        **inventory_document(bot, ids),
+        "login_addresses": {node: value for node, value in saved_node_access(bot).items() if node in ids},
+        "registered_hardware": saved_node_hardware(bot),
+    }
+
+
 @router.post("/api/bots/{bot_id}/configuration-access/preview", tags=["Public API"])
 @limiter.limit("60/minute")
 def preview(bot_id: int, request: Request, response: Response, body: PreviewChange, db: Session = Depends(get_db)):
@@ -503,12 +529,14 @@ def apply(bot_id: int, request: Request, response: Response, body: ApplyChange, 
                 bot.utilization_config = serialized_datasource(
                     UtilizationConfig.model_validate(after) if after else None
                 )
+            elif changed and body.scope == "node_inventory:write":
+                bot.node_inventory_config = json.dumps(after["nodes"], separators=(",", ":"))
             elif changed:
                 bot.node_access_config = serialize_node_access(after["nodes"])
             row.last_used_at = _now()
             counts = (
                 _change_counts(before["nodes"], after["nodes"])
-                if body.scope == "node_access:write"
+                if body.scope != "datasource:write"
                 else _change_counts(before or {}, after or {})
             )
             _audit(

@@ -13,6 +13,10 @@ const auth = vi.hoisted(() => ({
 }))
 
 vi.mock('../../stores/auth', () => ({ useAuthStore: () => auth }))
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ query: {} }),
+  useRouter: () => ({ replace: vi.fn() }),
+}))
 vi.mock('../../components/ConfigurationCredentialManager.vue', () => ({
   default: { template: '<div>configuration-manager</div>' },
 }))

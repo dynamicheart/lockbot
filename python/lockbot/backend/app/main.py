@@ -260,7 +260,7 @@ def _migrate_bots_node_metadata():
     from sqlalchemy import text
 
     columns = {column["name"] for column in sa_inspect(engine).get_columns("bots")}
-    for name in ("node_access_config", "node_hardware_config"):
+    for name in ("node_access_config", "node_hardware_config", "node_inventory_config"):
         if name not in columns:
             with engine.begin() as conn:
                 conn.execute(text(f"ALTER TABLE bots ADD COLUMN {name} TEXT"))
@@ -1048,6 +1048,13 @@ def create_app() -> FastAPI:
             f"{agent_tutorial(2, lang)}</main></body></html>",
             headers=localized_doc_headers(lang),
         )
+
+    @app.get("/api/public-docs/configuration/AGENTS.md", include_in_schema=False)
+    def configuration_agent_guide():
+        from importlib.resources import files
+
+        body = files("lockbot.backend.app.resource_api").joinpath("configuration_agents.md").read_text(encoding="utf-8")
+        return Response(body, media_type="text/plain")
 
     from lockbot.backend.app.personal_panel.setup import mount_if_configured
 

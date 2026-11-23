@@ -1,5 +1,8 @@
 <template>
   <section ref="container" class="configuration-credentials">
+    <a class="configuration-guide-link" href="/api/public-docs/configuration/AGENTS.md">
+      {{ $t('configurationCredentials.agentGuide') }}
+    </a>
     <header v-if="!showGuide" class="credential-toolbar">
       <div class="credential-actions">
         <el-button :loading="loading" @click="load(offset)">{{ $t('common.refresh') }}</el-button>
@@ -279,7 +282,10 @@ import { useHelpers } from '../utils/helpers'
 const props = defineProps({
   principalId: { type: [Number, String], default: '' },
   sessionRevision: { type: Number, default: 0 },
+  requestedBot: { type: String, default: '' },
+  requestedScope: { type: String, default: '' },
 })
+const emit = defineEmits(['prefill-consumed'])
 const { copyText, formatDateTime } = useHelpers()
 const { t } = useI18n()
 const scope = createBotDetailScope()
@@ -287,6 +293,7 @@ const endpoint = '/configuration-credentials'
 const scopeLabels = {
   'node_access:write': 'configurationCredentials.nodeAccess',
   'datasource:write': 'configurationCredentials.datasource',
+  'node_inventory:write': 'configurationCredentials.nodeInventory',
 }
 const lifetimes = [600, 3600, 86400, 604800]
 const pageSize = 50
@@ -405,6 +412,19 @@ function openAction(type, row) {
   showAction.value = true
 }
 
+watch(
+  () => [loaded.value, props.requestedBot, props.requestedScope],
+  ([ready, bot, permission]) => {
+    if (!ready || !/^\d+$/.test(bot) || !Object.hasOwn(scopeLabels, permission)) return
+    if (botsById.value.has(Number(bot))) {
+      openCreate()
+      form.value.bot_ids = [Number(bot)]
+      form.value.scopes = [permission]
+    }
+    emit('prefill-consumed')
+  }
+)
+
 async function mutate(send, after) {
   if (busy.value) return
   const request = scope.begin('mutation')
@@ -489,6 +509,11 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.configuration-guide-link {
+  display: inline-block;
+  margin-bottom: 12px;
+}
+
 .credential-toolbar,
 .credential-actions {
   display: flex;
