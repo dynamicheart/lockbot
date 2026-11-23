@@ -1,15 +1,22 @@
 <template>
-  <section ref="container" class="configuration-credentials">
-    <header v-if="!showGuide" class="credential-toolbar">
+  <section ref="container" class="configuration-credentials" :aria-busy="loading">
+    <header v-if="!showGuide && (loaded || error)" class="credential-toolbar">
       <div class="credential-actions">
         <el-button :loading="loading" @click="load(offset)">{{ $t('common.refresh') }}</el-button>
         <el-button type="primary" :disabled="!bots.length || busy" @click="openCreate">
           {{ $t('configurationCredentials.create') }}
         </el-button>
+        <a class="configuration-guide-link" :href="guideUrl" download="AGENTS.md">
+          {{ $t('configurationCredentials.agentGuide') }}
+        </a>
       </div>
     </header>
 
-    <section v-else class="credential-guide" aria-labelledby="configuration-credential-guide-title">
+    <section
+      v-if="showGuide"
+      class="credential-guide"
+      aria-labelledby="configuration-credential-guide-title"
+    >
       <h2 id="configuration-credential-guide-title">
         {{ $t('configurationCredentials.empty') }}
       </h2>
@@ -28,10 +35,15 @@
           <p>{{ $t('configurationCredentials.guideUse') }}</p>
         </li>
       </ol>
-      <el-button v-if="bots.length" type="primary" :disabled="busy" @click="openCreate">
-        {{ $t('configurationCredentials.create') }}
-      </el-button>
-      <p v-else>{{ $t('configurationCredentials.noEligibleBots') }}</p>
+      <p v-if="!bots.length">{{ $t('configurationCredentials.noEligibleBots') }}</p>
+      <div class="credential-actions">
+        <el-button v-if="bots.length" type="primary" :disabled="busy" @click="openCreate">
+          {{ $t('configurationCredentials.create') }}
+        </el-button>
+        <a class="configuration-guide-link" :href="guideUrl" download="AGENTS.md">
+          {{ $t('configurationCredentials.agentGuide') }}
+        </a>
+      </div>
     </section>
 
     <el-alert
@@ -43,7 +55,7 @@
     />
 
     <el-table
-      v-if="!showGuide"
+      v-if="loaded && !showGuide"
       v-loading="loading"
       :data="items"
       :empty-text="$t('configurationCredentials.empty')"
@@ -259,11 +271,7 @@
         readonly
         autocomplete="off"
       />
-      <a
-        class="configuration-guide-link"
-        href="/api/public-docs/configuration/AGENTS.md"
-        download="AGENTS.md"
-      >
+      <a class="configuration-guide-link" :href="guideUrl" download="AGENTS.md">
         {{ $t('configurationCredentials.agentGuide') }}
       </a>
       <template #footer>
@@ -294,6 +302,7 @@ const { copyText, formatDateTime } = useHelpers()
 const { t } = useI18n()
 const scope = createBotDetailScope()
 const endpoint = '/configuration-credentials'
+const guideUrl = '/api/public-docs/configuration/AGENTS.md'
 const scopeLabels = {
   'node_access:write': 'configurationCredentials.nodeAccess',
   'datasource:write': 'configurationCredentials.datasource',
@@ -320,9 +329,7 @@ const bots = ref([])
 const offset = ref(0)
 const loading = ref(false)
 const loaded = ref(false)
-const showGuide = computed(
-  () => loaded.value && !loading.value && !error.value && offset.value === 0 && !items.value.length
-)
+const showGuide = computed(() => loaded.value && offset.value === 0 && !items.value.length)
 const busy = ref(false)
 const error = ref('')
 const showCreate = ref(false)
@@ -548,6 +555,10 @@ onBeforeUnmount(() => {
   color: var(--el-text-color-regular);
   font-size: 13px;
   text-underline-offset: 2px;
+}
+
+.credential-actions .configuration-guide-link {
+  margin: 0 4px;
 }
 
 .configuration-guide-link:hover,
