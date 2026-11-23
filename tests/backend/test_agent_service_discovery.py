@@ -153,6 +153,9 @@ def test_version_headers_follow_skill_updates_and_old_etag_does_not_hide_new_con
     markdown = tmp_path / "agent_skill/v2.md"
     markdown.parent.mkdir()
     markdown.write_text("---\nname: lockbot\n---\nUpdated instructions\n")
+    metadata = markdown.parent / "agents/openai.yaml"
+    metadata.parent.mkdir()
+    metadata.write_text('interface:\n  display_name: "LockBot"\n')
     monkeypatch.setattr("lockbot.backend.app.resource_api.v2.skill.files", lambda package: tmp_path)
     _artifact.cache_clear()
     context = client.get("/api/agent/context", headers=api["headers"])

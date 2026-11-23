@@ -755,7 +755,7 @@
           <p class="scope">
             在已绑定该群的 Agent 中说“打开我的资源台”，打开链接后确认添加。
             <a
-              href="/api/agent/v2/skill/SKILL.md"
+              :href="skillPackagePath"
               target="_blank"
               rel="noopener noreferrer"
               >{{ t('personalOnboarding.installPackage') }}</a
@@ -828,13 +828,13 @@ import PersonalCredentialRotation from '../components/PersonalCredentialRotation
 
 const { copyText } = useHelpers()
 const { t, locale } = useI18n()
-const skillPackagePath = '/api/agent/v2/skill/SKILL.md'
+const skillPackagePath = '/api/agent/v2/skill/lockbot.zip'
 function copyOnboardingRequest() {
   copyText(t('personalOnboarding.request', { origin: window.location.origin }))
 }
 function copyInstallRequest() {
   copyText(
-    t('personalOnboarding.installRequest', { url: window.location.origin + '/api/agent/v2/manifest' })
+    t('personalOnboarding.installRequest', { url: window.location.origin + skillPackagePath })
   )
 }
 const tabs = computed(() => [

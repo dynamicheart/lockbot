@@ -6,21 +6,22 @@ from importlib.resources import files
 
 from fastapi import Response
 
-from lockbot.backend.app.resource_api.skill import _deployment_origin
+from lockbot.backend.app.resource_api.skill import _deployment_origin, _zip_skill
 
 SKILL_NAME = "lockbot"
 MANIFEST_URL = "/api/agent/v2/manifest"
-SKILL_PATH = "/skill/SKILL.md"
+SKILL_PATH = "/skill/lockbot.zip"
 SKILL_URL = f"/api/agent/v2{SKILL_PATH}"
 
 
-class SkillMarkdown(Response):
-    media_type = "text/markdown"
+class SkillZip(Response):
+    media_type = "application/zip"
 
 
 @lru_cache(maxsize=4)
 def _artifact(origin: str) -> tuple[bytes, str]:
-    template = files("lockbot.backend.app").joinpath("agent_skill/v2.md").read_text(encoding="utf-8")
+    source = files("lockbot.backend.app").joinpath("agent_skill")
+    template = source.joinpath("v2.md").read_text(encoding="utf-8")
     connection = "Ask the user for the LockBot service address before signing in."
     if origin:
         connection = (
@@ -28,7 +29,9 @@ def _artifact(origin: str) -> tuple[bytes, str]:
             "only after the user explicitly authorizes binding to this service. "
             f"Select this service explicitly with `lb --origin {origin} resource list`."
         )
-    content = template.replace("{{LOCKBOT_CONNECTION}}", connection, 1).encode()
+    markdown = template.replace("{{LOCKBOT_CONNECTION}}", connection, 1).encode()
+    metadata = source.joinpath("agents/openai.yaml").read_bytes()
+    content = _zip_skill(markdown, SKILL_NAME, {"agents/openai.yaml": metadata})
     return content, sha256(content).hexdigest()
 
 
@@ -42,6 +45,13 @@ def skill_metadata() -> dict[str, str]:
     return {**release, "version": revision, "package_version": revision, "skill_url": SKILL_URL}
 
 
-def download_skill() -> SkillMarkdown:
+def download_skill() -> SkillZip:
     content, digest = _artifact(_deployment_origin())
-    return SkillMarkdown(content, headers={"ETag": f'"{digest}"', "Cache-Control": "no-cache"})
+    return SkillZip(
+        content,
+        headers={
+            "ETag": f'"{digest}"',
+            "Cache-Control": "no-cache",
+            "Content-Disposition": 'attachment; filename="lockbot.zip"',
+        },
+    )

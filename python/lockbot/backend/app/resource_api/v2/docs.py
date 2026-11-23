@@ -53,12 +53,13 @@ _DESCRIPTIONS = {
 curl -fsS "$LOCKBOT_URL/api/agent/v2/manifest"
 ```
 """,
-    ("get", "/skill/SKILL.md"): """
-下载当前服务发布的 v2 Skill 正文。无需凭证。安装或更新前，用 `GET /api/agent/v2/manifest`
+    ("get", "/skill/lockbot.zip"): """
+下载当前服务发布的 v2 Skill ZIP，内含 `SKILL.md` 和 `agents/openai.yaml`。无需凭证。
+安装或更新前，用 `GET /api/agent/v2/manifest`
 返回的 `skill.sha256` 核对原始字节。已保存连接的 lb 可以执行 `lb skill install` 和 `lb skill update`。
 
 ```sh
-curl -fsS "$LOCKBOT_URL/api/agent/v2/skill/SKILL.md"
+curl -fsS -o lockbot.zip "$LOCKBOT_URL/api/agent/v2/skill/lockbot.zip"
 ```
 """,
     ("post", "/bindings"): """
@@ -263,7 +264,7 @@ _JSON_RESPONSES = {
                     "task_categories": {"unit_testing": "单元测试", "performance_testing": "性能测试"},
                     "skill": {
                         "name": "lockbot",
-                        "download_url": "/api/agent/v2/skill/SKILL.md",
+                        "download_url": "/api/agent/v2/skill/lockbot.zip",
                         "sha256": "0123456789abcdef" * 4,
                     },
                 },
@@ -424,9 +425,10 @@ def describe_v2_operation(path, method, operation):
         stream["schema"] = {"type": "string"}
         stream["example"] = f"id: 0123456789abcdef0123456789abcdef\nevent: snapshot\ndata: {snapshot}\n\n"
     responses = operation["responses"]
-    if key == ("get", "/skill/SKILL.md"):
-        responses["200"]["description"] = "完整的 UTF-8 Skill Markdown。"
-    if key not in {("get", "/manifest"), ("get", "/skill/SKILL.md"), ("post", "/bindings/{binding_id}/complete")}:
+    if key == ("get", "/skill/lockbot.zip"):
+        responses["200"]["description"] = "完整的 LockBot Skill ZIP。"
+        responses["200"]["content"]["application/zip"]["schema"] = {"type": "string", "format": "binary"}
+    if key not in {("get", "/manifest"), ("get", "/skill/lockbot.zip"), ("post", "/bindings/{binding_id}/complete")}:
         responses.setdefault("401", {"description": "向 Authorization 头传入有效的 lbv2_ Bearer Key。"})
     for status, guidance in _ERRORS.get(key, {}).items():
         responses.setdefault(status, {})["description"] = guidance

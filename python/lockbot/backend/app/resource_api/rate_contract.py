@@ -25,7 +25,7 @@ _V1 = {
 }
 _V2 = {
     ("get", "/manifest"): (None, None),
-    ("get", "/skill/SKILL.md"): (None, None),
+    ("get", "/skill/lockbot.zip"): (None, None),
     ("post", "/bindings"): (config.RESOURCE_AUTH_V2_BIND_START_RATE, None),
     ("post", "/bindings/{binding_id}/complete"): ("60/minute", None),
     ("get", "/bindings"): ("120/minute", None),

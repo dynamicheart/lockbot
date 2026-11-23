@@ -13,7 +13,9 @@ import sys
 import tempfile
 import time
 from contextlib import asynccontextmanager
+from io import BytesIO
 from pathlib import Path
+from zipfile import ZipFile
 
 
 def serve(port, private_file):
@@ -117,8 +119,12 @@ def probe(output):
                     return response
 
                 skill = request("GET", "/api/agent/v2/manifest").json()["skill"]
-                skill_text = request("GET", skill["download_url"]).content
-                assert hashlib.sha256(skill_text).hexdigest() == skill["sha256"]
+                skill_zip = request("GET", skill["download_url"])
+                assert skill_zip.headers["content-type"] == "application/zip"
+                assert hashlib.sha256(skill_zip.content).hexdigest() == skill["sha256"]
+                with ZipFile(BytesIO(skill_zip.content)) as bundle:
+                    assert set(bundle.namelist()) == {"lockbot/SKILL.md", "lockbot/agents/openai.yaml"}
+                    skill_text = bundle.read("lockbot/SKILL.md")
                 assert f"lb login http://127.0.0.1:{port}".encode() in skill_text
                 for obsolete in ("/api/agent-skill", "/api/agent-skill/lockbot-resource-agent.zip"):
                     response = request("GET", obsolete, expected=404)

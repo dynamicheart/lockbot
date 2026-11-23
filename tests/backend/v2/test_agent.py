@@ -1,3 +1,6 @@
+from io import BytesIO
+from zipfile import ZipFile
+
 import pytest
 from lockbot.backend.app.resource_auth import service
 
@@ -96,8 +99,8 @@ def test_openapi_v2_documents_each_http_operation(client):
                 event = json.loads(frame.split("data: ", 1)[1])
                 assert frame.startswith("id: ") and "\nevent: snapshot\n" in frame
                 assert event["rows"][0]["booking"]["claimable"]
-            elif path.endswith("/skill/SKILL.md"):
-                assert response["content"]["text/markdown"]["schema"] == {"type": "string"}
+            elif path.endswith("/skill/lockbot.zip"):
+                assert response["content"]["application/zip"]["schema"] == {"type": "string", "format": "binary"}
                 assert "security" not in operation
             else:
                 assert response["content"]["application/json"]["examples"]
@@ -114,29 +117,33 @@ def test_agent_v2_publishes_downloadable_skill(client, monkeypatch):
     manifest = client.get(API + "/manifest").raise_for_status().json()
     release = manifest["skill"]
     assert release["name"] == "lockbot"
-    assert release["download_url"] == API + "/skill/SKILL.md"
+    assert release["download_url"] == API + "/skill/lockbot.zip"
     response = client.get(release["download_url"], headers={"Host": "unexpected.example.test"}).raise_for_status()
-    assert response.headers["content-type"].startswith("text/markdown")
-    assert response.content.startswith(b"---\nname: lockbot\n")
+    assert response.headers["content-type"] == "application/zip"
+    with ZipFile(BytesIO(response.content)) as bundle:
+        markdown = bundle.read("lockbot/SKILL.md").decode()
+    assert markdown.startswith("---\nname: lockbot\n")
     assert sha256(response.content).hexdigest() == release["sha256"]
-    assert "`lb login https://lockbot.example.test:8155`" in response.text
-    assert "`lb --origin https://lockbot.example.test:8155 resource list`" in response.text
-    assert "only after the user explicitly authorizes binding" in response.text
-    assert "If more than one target matches, ask the user" in response.text
-    assert "A label, node name, or bot name is not hardware evidence" in response.text
-    assert "Proceed only after a fresh, complete result confirms the target." in response.text
-    assert "If it cannot be confirmed, report the result as unknown and stop." in response.text
-    assert "unexpected.example.test" not in response.text
-    assert "`lb lock" in response.text and "`lb book" in response.text
-    assert "/api/agent-skill" not in response.text
+    assert "`lb login https://lockbot.example.test:8155`" in markdown
+    assert "`lb --origin https://lockbot.example.test:8155 resource list`" in markdown
+    assert "only after the user explicitly authorizes binding" in markdown
+    assert "If more than one target matches, ask the user" in markdown
+    assert "A label, node name, or bot name is not hardware evidence" in markdown
+    assert "Proceed only after a fresh, complete result confirms the target." in markdown
+    assert "If it cannot be confirmed, report the result as unknown and stop." in markdown
+    assert "unexpected.example.test" not in markdown
+    assert "`lb lock" in markdown and "`lb book" in markdown
+    assert "/api/agent-skill" not in markdown
 
     monkeypatch.setenv("PLATFORM_URL", "https://another.example.test")
     updated = client.get(API + "/manifest").raise_for_status().json()["skill"]
     assert updated["sha256"] != release["sha256"]
     monkeypatch.delenv("PLATFORM_URL")
     unconfigured = client.get(release["download_url"]).raise_for_status()
-    assert "Ask the user for the LockBot service address" in unconfigured.text
-    assert "unexpected.example.test" not in unconfigured.text
+    with ZipFile(BytesIO(unconfigured.content)) as bundle:
+        markdown = bundle.read("lockbot/SKILL.md").decode()
+    assert "Ask the user for the LockBot service address" in markdown
+    assert "unexpected.example.test" not in markdown
 
 
 def test_agent_v2_notification_preserves_v1_command_display(monkeypatch):

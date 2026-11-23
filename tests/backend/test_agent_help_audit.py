@@ -1,5 +1,7 @@
 # ruff: noqa: F811
 from datetime import datetime
+from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
 from lockbot.backend.app.audit.models import AuditLog
@@ -20,7 +22,7 @@ def test_binding_noop_hints_use_trusted_site_url_and_saved_gate(action, argument
     db_session.merge(SiteSetting(key="platform_url", value="https://trusted.example"))
     db_session.commit()
     text = chat_hook(action, argument, bot_id=bot_id)
-    assert "https://trusted.example/api/agent-skill\n" in text
+    assert "https://trusted.example/api/agent/v2/skill/lockbot.zip\n" in text
     assert ("明确请你的 Agent" if lang == "zh" else "ask your Agent to verify") in text
     row.resource_auth_enabled = False
     db_session.commit()
@@ -89,12 +91,14 @@ def test_public_command_docs_have_named_examples_and_grammar(client):
     op = client.get("/api/public-openapi.json").json()["paths"]["/api/agent/commands"]["post"]
     examples = op["requestBody"]["content"]["application/json"]["examples"]
     assert {"node_lock", "device_lock", "queue_book", "release_or_cancel"} <= examples.keys()
-    instructions = client.get("/api/agent/v2/skill/SKILL.md")
+    instructions = client.get("/api/agent/v2/skill/lockbot.zip")
     assert instructions.status_code == 200
+    with ZipFile(BytesIO(instructions.content)) as bundle:
+        markdown = bundle.read("lockbot/SKILL.md").decode()
     for word in ["free node1", "book node1 2h", "dev0-3", "queue_claim_window_seconds"]:
         assert word in op["description"]
-    assert "`lb lock <node> 30m`" in instructions.text
-    assert "`lb free`" in instructions.text
+    assert "`lb lock <node> 30m`" in markdown
+    assert "`lb free`" in markdown
 
 
 def test_active_authorizations_paginate_without_hiding_unseen_keys(api, client, db_session):

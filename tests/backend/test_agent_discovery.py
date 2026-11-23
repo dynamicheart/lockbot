@@ -3,6 +3,8 @@
 # ruff: noqa: F811
 import hashlib
 from datetime import datetime, timedelta
+from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
 from lockbot.backend.app.audit.models import AuditLog
@@ -12,24 +14,34 @@ from lockbot.backend.app.resource_auth.models import ResourceBinding
 from backend.test_resource_api_resources import api  # noqa: F401
 
 
-def test_public_skill_download_matches_manifest_and_retires_bundles(client, db_session, monkeypatch):
+def test_public_skill_zip_matches_manifest_and_retires_old_downloads(client, db_session, monkeypatch):
     monkeypatch.delenv("PLATFORM_URL", raising=False)
     before = db_session.query(AuditLog).count()
     manifest = client.get("/api/agent/v2/manifest")
     assert manifest.status_code == 200
     skill = manifest.json()["skill"]
-    assert skill["download_url"] == "/api/agent/v2/skill/SKILL.md"
+    assert skill["download_url"] == "/api/agent/v2/skill/lockbot.zip"
     download = client.get(skill["download_url"])
     assert download.status_code == 200
-    assert download.headers["content-type"].startswith("text/markdown")
+    assert download.headers["content-type"] == "application/zip"
+    assert download.headers["content-disposition"] == 'attachment; filename="lockbot.zip"'
+    with ZipFile(BytesIO(download.content)) as bundle:
+        assert set(bundle.namelist()) == {"lockbot/SKILL.md", "lockbot/agents/openai.yaml"}
+        markdown = bundle.read("lockbot/SKILL.md")
+        assert b'display_name: "LockBot"' in bundle.read("lockbot/agents/openai.yaml")
     assert hashlib.sha256(download.content).hexdigest() == skill["sha256"]
-    assert b"name: lockbot" in download.content
-    assert b"Use lb" in download.content
-    assert b"Ask the user for the LockBot service address" in download.content
+    assert b"name: lockbot" in markdown
+    assert b"Use lb" in markdown
+    assert b"Ask the user for the LockBot service address" in markdown
     assert db_session.query(AuditLog).count() == before
 
     paths = client.get("/api/public-openapi.json").json()["paths"]
-    for obsolete in ("/api/agent-skill", "/api/agent-skill/SKILL.md", "/api/agent-skill/lockbot-resource-agent.zip"):
+    for obsolete in (
+        "/api/agent/v2/skill/SKILL.md",
+        "/api/agent-skill",
+        "/api/agent-skill/SKILL.md",
+        "/api/agent-skill/lockbot-resource-agent.zip",
+    ):
         response = client.get(obsolete, follow_redirects=False)
         assert response.status_code == 404 and "location" not in response.headers
         assert obsolete not in paths
@@ -42,9 +54,11 @@ def test_deployment_skill_uses_the_configured_address(client, monkeypatch):
     headers = {"X-Forwarded-Host": "untrusted.example"}
     skill = client.get("/api/agent/v2/manifest", headers=headers).json()["skill"]
     download = client.get(skill["download_url"], headers=headers)
-    assert b"lb login http://192.0.2.10:8155" in download.content
-    assert b"lb --origin http://192.0.2.10:8155 resource list" in download.content
-    assert b"untrusted.example" not in download.content
+    with ZipFile(BytesIO(download.content)) as bundle:
+        markdown = bundle.read("lockbot/SKILL.md")
+    assert b"lb login http://192.0.2.10:8155" in markdown
+    assert b"lb --origin http://192.0.2.10:8155 resource list" in markdown
+    assert b"untrusted.example" not in markdown
     assert skill["sha256"] != generic["sha256"]
     assert hashlib.sha256(download.content).hexdigest() == skill["sha256"]
     assert download.headers["etag"] == f'"{skill["sha256"]}"'

@@ -63,7 +63,7 @@ where = ["python"]
 exclude = ["lockbot.backend.app.agent_skill.scripts", "lockbot.backend.app.agent_skill.references"]
 
 [tool.setuptools.package-data]
-lockbot = ["core/i18n/*.py", "backend/app/agent_skill/v2.md", "backend/app/personal_panel/assets/*"]
+lockbot = ["core/i18n/*.py", "backend/app/agent_skill/v2.md", "backend/app/agent_skill/agents/openai.yaml", "backend/app/personal_panel/assets/*"]
 
 [tool.ruff]
 target-version = "py310"

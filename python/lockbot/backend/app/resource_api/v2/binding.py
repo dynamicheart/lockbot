@@ -17,7 +17,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import Base, get_db
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
 from lockbot.backend.app.rate_limit import limiter
-from lockbot.backend.app.resource_api.v2.skill import SKILL_PATH, SkillMarkdown, download_skill, skill_release
+from lockbot.backend.app.resource_api.v2.skill import SKILL_PATH, SkillZip, download_skill, skill_release
 from lockbot.backend.app.resource_auth import credentials, service
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.models import ResourceBinding
@@ -501,7 +501,7 @@ def manifest(db: Session = Depends(get_db)):
     }
 
 
-router.add_api_route(SKILL_PATH, download_skill, methods=["GET"], response_class=SkillMarkdown)
+router.add_api_route(SKILL_PATH, download_skill, methods=["GET"], response_class=SkillZip)
 
 
 @router.get("/openapi.json", include_in_schema=False)

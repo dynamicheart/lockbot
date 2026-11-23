@@ -1,9 +1,11 @@
 # Install and use the LockBot Skill
 
-The LockBot service publishes `SKILL.md` and its SHA-256 in the Agent API v2
-manifest at `/api/agent/v2/manifest`. Set `PLATFORM_URL` at deployment to the
-HTTP or HTTPS address that Agents can reach. The downloaded Skill includes that
-address and commands for selecting the correct server.
+Download [lockbot.zip](/api/agent/v2/skill/lockbot.zip) from your LockBot service.
+It contains the Codex skill directory with `SKILL.md` and `agents/openai.yaml`.
+The Agent API v2 manifest at `/api/agent/v2/manifest` lists the ZIP and its SHA-256.
+Set `PLATFORM_URL` at deployment to the HTTP or HTTPS address that Agents can
+reach. The downloaded Skill includes that address and commands for selecting
+the correct server.
 
 Use the Go `lb` executable for the resource workflow. Substitute the address
 your administrator has approved.
@@ -25,7 +27,7 @@ write before reporting success.
 
 New v1 enrollment is disabled by default. New clients bind through Agent API v2.
 Existing v1 keys retain access to their existing API scopes. The published Skill
-uses v2 and is distributed as Markdown. See the
+uses v2. See the
 [v3.3.3 release documentation](https://github.com/dynamicheart/lockbot/blob/v3.3.3/docs/usage/resource-agent-helper.md)
 for the previous release's Python client instructions.
 

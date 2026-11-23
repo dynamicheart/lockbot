@@ -469,6 +469,7 @@ def _audit_binding_change(db, platform, external_user_id, bot, action, rows, *, 
 def _with_agent_usage_hint(db, bot, lang, reply):
     from urllib.parse import urlsplit
 
+    from lockbot.backend.app.resource_api.v2.skill import SKILL_URL
     from lockbot.backend.app.settings.router import get_all_settings
 
     if not bot.resource_auth_enabled:
@@ -480,7 +481,7 @@ def _with_agent_usage_hint(db, bot, lang, reply):
         return reply
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return reply
-    return reply + "\n\n" + t("binding.agent_usage_hint", lang=lang, url=base + "/api/agent-skill")
+    return reply + "\n\n" + t("binding.agent_usage_hint", lang=lang, url=base + SKILL_URL)
 
 
 def _chat_bind(db: Session, platform: str, external_user_id: str, bot, lang: str, argument: str, chat_id):

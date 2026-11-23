@@ -29,7 +29,7 @@ Set `PLATFORM_URL` to the actual address Agents use to reach this deployment, su
 origin of the reverse proxy when applicable. Include the scheme and published port.
 Compose passes this value to the service. A direct `docker run` can pass it through
 `--env-file` or `-e PLATFORM_URL=...`. The Agent API v2 manifest at
-`/api/agent/v2/manifest` links to the Markdown Skill and publishes its SHA-256.
+`/api/agent/v2/manifest` links to the Skill ZIP and publishes its SHA-256.
 The Skill includes this deployment address and the Go `lb` commands for selecting
 it. Confirm the address and digest on the upgraded service after startup.
 
