@@ -11,6 +11,8 @@ from fastapi import Response
 from lockbot.backend.app.resource_api.skill import _deployment_origin, _zip_skill
 
 SKILL_NAME = "lockbot"
+# Bump when releasing changes to the Skill instructions or bundled metadata.
+SKILL_VERSION = "1.0.0"
 MANIFEST_URL = "/api/agent/v2/manifest"
 SKILL_PATH = "/skill/lockbot.zip"
 SKILL_URL = f"/api/agent/v2{SKILL_PATH}"
@@ -37,6 +39,7 @@ def _artifact(origin: str, release_manifest_url: str) -> tuple[bytes, str]:
     markdown = (
         template.replace("{{LOCKBOT_CONNECTION}}", connection, 1)
         .replace("{{LOCKBOT_LB_INSTALL_SOURCE}}", install_source, 1)
+        .replace("{{LOCKBOT_SKILL_VERSION}}", SKILL_VERSION, 1)
         .encode()
     )
     metadata = source.joinpath("agents/openai.yaml").read_bytes()
@@ -53,13 +56,25 @@ def _configured_artifact() -> tuple[bytes, str]:
 
 
 def skill_release() -> dict[str, str]:
-    return {"name": SKILL_NAME, "download_url": SKILL_URL, "sha256": _configured_artifact()[1]}
+    return {
+        "name": SKILL_NAME,
+        "version": SKILL_VERSION,
+        "download_url": SKILL_URL,
+        "sha256": _configured_artifact()[1],
+    }
 
 
 def skill_metadata() -> dict[str, str]:
     release = skill_release()
     revision = release["sha256"][:16]
-    return {**release, "version": revision, "package_version": revision, "skill_url": SKILL_URL}
+    # Existing Agent API update headers identify the exact rendered package.
+    return {
+        **release,
+        "release_version": release["version"],
+        "version": revision,
+        "package_version": revision,
+        "skill_url": SKILL_URL,
+    }
 
 
 def download_skill() -> SkillZip:

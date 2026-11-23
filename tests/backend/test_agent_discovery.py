@@ -9,6 +9,7 @@ from zipfile import ZipFile
 import pytest
 from lockbot.backend.app.audit.models import AuditLog
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
+from lockbot.backend.app.resource_api.v2.skill import SKILL_VERSION
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 
 from backend.test_resource_api_resources import api  # noqa: F401
@@ -20,6 +21,7 @@ def test_public_skill_zip_matches_manifest_and_retires_old_downloads(client, db_
     manifest = client.get("/api/agent/v2/manifest")
     assert manifest.status_code == 200
     skill = manifest.json()["skill"]
+    assert skill["version"] == SKILL_VERSION
     assert skill["download_url"] == "/api/agent/v2/skill/lockbot.zip"
     download = client.get(skill["download_url"])
     assert download.status_code == 200
@@ -31,6 +33,7 @@ def test_public_skill_zip_matches_manifest_and_retires_old_downloads(client, db_
         assert b'display_name: "LockBot"' in bundle.read("lockbot/agents/openai.yaml")
     assert hashlib.sha256(download.content).hexdigest() == skill["sha256"]
     assert b"name: lockbot" in markdown
+    assert f'metadata:\n  version: "{skill["version"]}"'.encode() in markdown
     assert b"Use lb" in markdown
     assert b"Ask the user for the LockBot service address" in markdown
     assert db_session.query(AuditLog).count() == before

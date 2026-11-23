@@ -47,7 +47,7 @@ _DESCRIPTIONS = {
 若 `capabilities` 含 `resource_events`，可通过 `resource_events_url` 订阅资源。
 `task_categories` 列出可用于资源操作的预置分类。
 `instance_id` 标识当前服务实例，可用它区分不同服务器上的引用。
-`skill` 列出服务发布的 Agent Skill 名称、同源下载路径和内容的 SHA-256。下载无需凭证。
+`skill` 列出服务发布的 Agent Skill 名称、发布版本、同源下载路径和内容的 SHA-256。下载无需凭证。
 
 ```sh
 curl -fsS "$LOCKBOT_URL/api/agent/v2/manifest"
@@ -264,6 +264,7 @@ _JSON_RESPONSES = {
                     "task_categories": {"unit_testing": "单元测试", "performance_testing": "性能测试"},
                     "skill": {
                         "name": "lockbot",
+                        "version": "1.0.0",
                         "download_url": "/api/agent/v2/skill/lockbot.zip",
                         "sha256": "0123456789abcdef" * 4,
                     },
