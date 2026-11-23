@@ -121,6 +121,9 @@ def test_agent_v2_publishes_downloadable_skill(client, monkeypatch):
     assert sha256(response.content).hexdigest() == release["sha256"]
     assert "`lb login https://lockbot.example.test:8155`" in response.text
     assert "`lb --origin https://lockbot.example.test:8155 resource list`" in response.text
+    assert "only after the user explicitly authorizes binding" in response.text
+    assert "If more than one target matches, ask the user" in response.text
+    assert "A label, node name, or bot name is not hardware evidence" in response.text
     assert "unexpected.example.test" not in response.text
     assert "`lb lock" in response.text and "`lb book" in response.text
     assert "/api/agent-skill" not in response.text

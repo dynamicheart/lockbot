@@ -24,8 +24,8 @@ def _artifact(origin: str) -> tuple[bytes, str]:
     connection = "Ask the user for the LockBot service address before signing in."
     if origin:
         connection = (
-            f"Service address: `{origin}`. If the user approves this service and it is not saved in "
-            f"`lb connections`, run `lb login {origin}`. "
+            f"Service address: `{origin}`. For a first connection, run `lb login {origin}` "
+            "only after the user explicitly authorizes binding to this service. "
             f"Select this service explicitly with `lb --origin {origin} resource list`."
         )
     content = template.replace("{{LOCKBOT_CONNECTION}}", connection, 1).encode()
