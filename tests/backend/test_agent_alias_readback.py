@@ -43,11 +43,11 @@ def test_configured_and_unset_aliases_are_public_parent_node_fields(client, api)
 
 def test_agent_sets_changes_and_clears_alias_without_changing_holdings_or_task_notes(client, api, db_session):
     target = "n1 dev0" if "DEVICE" in api["bot"].config.get_val("BOT_TYPE") else "n1"
-    locked = command(client, api, f"lock {target} 1h", purpose="Private task", agent_label="Worker")
+    locked = command(client, api, f"lock {target} 1h", task_category="debugging")
     assert locked.status_code == 200, locked.text
     before = copy.deepcopy(api["bot"].state.bot_state)
     note = db_session.query(UsageDeclaration).one()
-    before_note = (note.purpose, note.agent_label, note.holding_proof)
+    before_note = (note.task_category, note.holding_proof)
     for value in ("rack-a", "rack-b", ""):
         response = command(client, api, f"alias n1 {value}".rstrip())
         assert response.status_code == 200, response.text
@@ -55,11 +55,11 @@ def test_agent_sets_changes_and_clears_alias_without_changing_holdings_or_task_n
         assert node(client, api)["alias"] == value
         assert node(client, api, api["other_headers"])["alias"] == value
         db_session.expire_all()
-        configured = json.loads(db_session.get(Bot, api["bot_id"]).config_overrides)["NODE_ALIASES"]
+        configured = json.loads(db_session.get(Bot, api["bot_id"]).config_overrides)["NODE_LABELS"]
         assert configured.get("n1", "") == value
         assert api["bot"].state.bot_state == before
         note = db_session.query(UsageDeclaration).one()
-        assert (note.purpose, note.agent_label, note.holding_proof) == before_note
+        assert (note.task_category, note.holding_proof) == before_note
 
 
 def test_current_alias_is_observed_without_rebuilding_committed_state(client, api):

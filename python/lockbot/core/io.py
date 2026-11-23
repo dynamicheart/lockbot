@@ -172,6 +172,7 @@ def create_or_load_device_state(config=None):
                     device_status = old_by_id[dev_id]
                     _migrate_status_fields(device_status)
                     _migrate_user_info_fields(device_status["current_users"])
+                    _migrate_user_info_fields(device_status.get("booking_list", []))
                     clamped = apply_max_duration_limit(device_status["current_users"], max_duration, duration_whitelist)
                     clamped_user_ids.update(clamped)
                     default_device.update(**device_status)

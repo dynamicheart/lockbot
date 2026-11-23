@@ -530,7 +530,7 @@ def test_alias_invalid_format(bot):
     bot.config.set_val("ALLOW_USER_ALIAS", True)
     reply = bot.alias("user1", "alias")
     # Should return usage hint
-    assert "alias" in str(reply).lower()
+    assert "label" in str(reply).lower()
 
 
 def test_alias_too_long(bot):

@@ -24,7 +24,7 @@ class QueueBot(NodeBot):
     """
 
     def supported_commands(self):
-        return ["lock", "unlock", "free", "kickout", "kicklock", "help", "h", "book", "take", "query", "alias"]
+        return ["lock", "unlock", "free", "kickout", "kicklock", "help", "h", "book", "take", "query", "label", "alias"]
 
     def lock(self, user_id, command, *, acquisition_limit=None):
         """
@@ -426,6 +426,7 @@ class QueueBot(NodeBot):
         queue_advanced = False
         state_changed = False
         alerts = []
+        ended = []
         user_ids = set()
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
@@ -465,6 +466,14 @@ class QueueBot(NodeBot):
                         if remaining_time <= 0:
                             removed_users_id.append(user_info["user_id"])
                             state_changed = True
+                            ended.append(
+                                (
+                                    node_key,
+                                    user_info["user_id"],
+                                    "holding_expired",
+                                    user_info["start_time"] + user_info["duration"],
+                                )
+                            )
 
                             # Send expiry notification only if early warning was never sent.
                             # When EARLY_NOTIFY=True and warning fired on time, is_notified=True → silent release.
@@ -498,6 +507,14 @@ class QueueBot(NodeBot):
                         # Already notified but timed out without response -> remove and notify next
                         if now - first_book_user["start_time"] >= TIME_TO_LOCK:
                             remove_user_info(node["booking_list"], first_book_user["user_id"])
+                            ended.append(
+                                (
+                                    node_key,
+                                    first_book_user["user_id"],
+                                    "booking_timed_out",
+                                    first_book_user["start_time"] + TIME_TO_LOCK,
+                                )
+                            )
                             if self._include_group_reminder(first_book_user):
                                 expired_users.append((first_book_user["user_id"], node_key))
                                 user_ids.add(first_book_user["user_id"])
@@ -506,7 +523,7 @@ class QueueBot(NodeBot):
 
             pending = self._pending_booking_rows(pending_keys)
             if state_changed:
-                self._persist_state()
+                self._persist_state(ended=ended)
 
             # Compute next wakeup after mutations
             min_next = float("inf")

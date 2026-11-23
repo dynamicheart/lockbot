@@ -1,7 +1,3 @@
-import io
-import zipfile
-
-
 def test_operator_documentation_does_not_offer_a_skill_download(client):
     obsolete = (
         "/api/op-skill",
@@ -18,6 +14,9 @@ def test_operator_documentation_does_not_offer_a_skill_download(client):
 
 
 def test_resource_skill_does_not_distribute_detailed_note_authorization(client):
+    from io import BytesIO
+    from zipfile import ZipFile
+
     private_contracts = (
         b"audit-credentials",
         b"/api/audit/bots",
@@ -25,12 +24,12 @@ def test_resource_skill_does_not_distribute_detailed_note_authorization(client):
         b"lba1",
         b"task_notes:read",
     )
-    response = client.get("/api/agent-skill/lockbot-resource-agent.zip")
+    response = client.get("/api/agent/v2/skill/lockbot.zip")
     assert response.status_code == 200
-    with zipfile.ZipFile(io.BytesIO(response.content)) as zipped:
-        for name in zipped.namelist():
+    with ZipFile(BytesIO(response.content)) as bundle:
+        for filename in bundle.namelist():
             for marker in private_contracts:
-                assert marker not in zipped.read(name)
+                assert marker not in bundle.read(filename)
 
 
 def test_public_resource_history_uses_operator_credentials_not_personal_keys(client):

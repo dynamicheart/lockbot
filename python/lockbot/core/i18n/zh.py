@@ -18,7 +18,7 @@ MESSAGES = {
     "notify.api_purpose": "\n备注：{purpose}",
     "notify.api_agent_label": "\nAgent：{label}",
     "help.agent_skill": "Agent 使用：",
-    "help.agent_lock_hint": "LockBot Skill 安装清单：{url}",
+    "help.agent_lock_hint": "LockBot Skill 安装包：{url}",
     "public_docs.agent_api_intro": "使用在群内完成绑定的个人 Agent Key，操作该群中属于你自己的资源。",
     "public_docs.resource_queries": "查询资源先用 `GET /api/agent/context` 核对绑定，再展开 "
     "`GET /api/agent/resources` 查看查询示例。",
@@ -33,6 +33,12 @@ MESSAGES = {
     "public_docs.schema": "完整 OpenAPI 定义",
     "public_docs.agent.title": "Agent API",
     "public_docs.agent.description": "绑定 Agent 后，使用个人 Key 查询资源、申请或释放自己的资源。",
+    "public_docs.deprecated_agent.title": "旧版 Agent API（已弃用）",
+    "public_docs.deprecated_agent.description": (
+        "仅供旧客户端兼容和迁移参考。新接入请使用 Agent API；每个旧接口均列出替代路径。"
+    ),
+    "public_docs.deprecated_agent.credential": "已绑定该机器人的个人 Agent Key；旧版路径不扩大 Key 的权限范围。",
+    "public_docs.deprecated_agent.replacement": "此接口已弃用。请改用 `{operation}`，机器人范围由个人 Key 确定。",
     "public_docs.op.title": "OP 运维 API",
     "public_docs.op.description": "用机器人的 OP Key 查询占用或强制释放资源。",
     "public_docs.configuration.title": "机器人配置 API",
@@ -65,6 +71,7 @@ MESSAGES = {
     "label.queue_list": "⌛️ 排队:\n",
     "label.queue_item": "  {index}. {user_id} {duration} 预计等待 {wait_time}\n",
     # ── Error messages ──
+    "feishu.query_busy": "查询繁忙，请稍后重新查询。",
     "feishu.command_format": "❌ 未执行：请 @机器人，发送一条命令或单个单行代码块，不要附带标题、引用或多条命令。",
     "error.invalid_command_format": "❌【命令格式有误】{command}",
     "error.invalid_node_key": "【节点{node_key}有误】\n\n节点应在{valid_keys}里面选择\n",
@@ -219,19 +226,20 @@ MESSAGES = {
     "opkick.notify_kicked": "⚠️【运维释放】\n\n节点: {node_key}\n",
     "opkick.notify_kicked_reason": "原因: {reason}\n\n",
     # ── Alias command ──
-    "alias.help_section": "{num}. 备注: alias {node} <备注>\n   清除: alias {node}\n",
-    "alias.usage": "用法: alias <节点名> [备注]\n示例: alias node0 10.10.10.56\n清除: alias node0",
+    "alias.help_section": "{num}. 节点标签: label {node} <标签>\n   清除: label {node}\n",
+    "alias.usage": "用法: label <节点名> [标签]\n示例: label node0 训练\n清除: label node0",
     "alias.invalid_node": "节点 {node_key} 不存在，可用节点: {valid_keys}\n",
-    "alias.invalid_alias": "备注不能包含换行，请输入单行备注",
-    "alias.too_long": "备注不能超过 15 个字符",
-    "alias.set_ok": "✅ 已设置 {node_key} 备注为「{alias}」\n\n",
-    "alias.clear_ok": "✅ 已清除 {node_key} 的备注\n\n",
-    "alias.disabled": "该机器人未开启用户自助设置备注功能",
+    "alias.invalid_alias": "标签不能包含换行",
+    "alias.too_long": "标签不能超过 15 个字符",
+    "alias.set_ok": "✅ 已设置 {node_key} 标签为「{alias}」\n\n",
+    "alias.clear_ok": "✅ 已清除 {node_key} 的标签\n\n",
+    "alias.disabled": "该机器人未开启用户自助设置标签功能",
     # ── Identity binding (agent API enrollment) ──
-    "binding.agent_usage_hint": "LockBot Skill 安装清单：{url}\n首次使用时，明确请你的 Agent 校验安装包并安装。",
+    "binding.agent_usage_hint": "LockBot Skill 安装包：{url}\n首次使用时，明确请你的 Agent 校验安装包并安装。",
     "binding.unavailable": ("❌【Agent授权不可用】\n\n当前机器人暂不支持 Agent 授权。"),
     "binding.failed": ("❌【Agent授权失败】\n\n授权命令处理失败，请稍后重试。"),
     "binding.enrollment_disabled": ("❌【Agent访问未开启】\n\n当前机器人未允许 Agent 访问，请联系管理人开启。"),
+    "binding.legacy_enrollment_disabled": "新绑定已切换到 Agent API v2。请使用 lb login 绑定。",
     "binding.usage_bind": (
         "📖【Agent授权方法】\n\n发送：bind <绑定码>\n绑定码由申请接入的 Agent 提供。请先核对授权用途。"
     ),
@@ -242,6 +250,10 @@ MESSAGES = {
     ),
     "binding.challenge_unavailable": "此请求没有可用的有效 Key。请回到发起请求的 Agent 查看下一步。",
     "binding.challenge_created": "已创建个人 Key。请回到发起请求的 Agent。",
+    "binding.personal_confirmed": "已确认 LockBot 授权。请回到发起请求的客户端完成绑定。",
+    "binding.personal_recovered": "已确认找回 LockBot Key。请回到发起请求的客户端。",
+    "binding.personal_rotated": "已确认重置 LockBot Key，此身份下的旧 Key 已撤销。",
+    "binding.personal_unavailable": "此账号无法确认该绑定码。如需找回 Key，请从客户端发起找回。",
     "binding.challenge_recover_confirmed": "已确认找回 Key。请回到发起请求的 Agent。",
     "binding.challenge_reset_confirmed": "已确认重置 Key，旧 Key 已失效。请回到发起请求的 Agent。",
     "binding.already_bound": (

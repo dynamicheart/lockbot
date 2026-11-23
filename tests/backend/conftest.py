@@ -47,7 +47,7 @@ def _managed_deployment(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _setup_db(tmp_path, _managed_deployment):
+def _setup_db(tmp_path, _managed_deployment, monkeypatch):
     """Create tables before each test, drop after; all managed IO uses the test root."""
     from unittest.mock import patch
 
@@ -55,6 +55,9 @@ def _setup_db(tmp_path, _managed_deployment):
     import lockbot.backend.app.auth.models  # noqa: F401
     import lockbot.backend.app.bots.models  # noqa: F401
     import lockbot.backend.app.resource_auth.models  # noqa: F401
+
+    # Compatibility fixtures issue v1 credentials before exercising their lifecycle.
+    monkeypatch.setattr(_config, "RESOURCE_AUTH_V1_ENROLLMENT_ENABLED", True)
 
     # The periodic backup loop opens its own DB connection during startup.
     # Leave it off in request tests, which create and drop the schema per test.
@@ -217,3 +220,41 @@ def admin_header(client):
     )
     token = resp.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def seed_legacy_task_details(db_session):
+    """Populate pre-upgrade metadata for tests of historical data readers."""
+    from datetime import datetime, timedelta, timezone
+
+    from lockbot.backend.app.resource_api.usage import UsageDeclaration, holding_proof
+    from lockbot.backend.app.resource_auth.models import ResourceBinding
+
+    def seed(api, purpose, agent_label=None, *, user="alice", resource_id="n1", task_category=None):
+        captured_at, state = api["bot"].state_snapshot()
+        proof = holding_proof(state, resource_id, user, now=captured_at.timestamp())
+        assert proof is not None
+        binding_id = (
+            db_session.query(ResourceBinding)
+            .filter_by(bound_bot_id=api["bot_id"], external_user_id=user, revoked_at=None)
+            .one()
+            .id
+        )
+        row = (
+            db_session.query(UsageDeclaration)
+            .filter_by(bot_id=api["bot_id"], binding_id=binding_id, resource_id=resource_id)
+            .one_or_none()
+        )
+        if row is None:
+            row = UsageDeclaration(bot_id=api["bot_id"], binding_id=binding_id, resource_id=resource_id)
+            db_session.add(row)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        row.purpose = purpose
+        row.agent_label = agent_label
+        row.task_category = task_category
+        row.holding_proof = proof
+        row.updated_at = now
+        row.expires_at = now + timedelta(hours=1)
+        db_session.commit()
+
+    return seed

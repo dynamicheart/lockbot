@@ -3,13 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import logging
-import re
 import time
-import unicodedata
 from datetime import datetime, timedelta, timezone
-from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, and_, case, delete, func, or_, select, tuple_
@@ -28,12 +24,6 @@ router = APIRouter(prefix="/api/bots", tags=["bots"])
 AGENT_ACTIVITY_WINDOW_SECONDS = 3600
 AGENT_ACTIVITY_RETENTION = timedelta(days=30)
 MAX_TRACKED_LABELS = 32
-_MIN_ACTIVITY_UPDATE = timedelta(seconds=30)
-_SECRET_LABEL = re.compile(
-    r"\b(?:lbr_|lbk_|lb[ac]1\.|lbv1\.|Bearer\s+)|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
-    r"|/#/r/[0-9]+/[A-Za-z0-9_-]{22}",
-    re.IGNORECASE,
-)
 
 
 class AgentActivity(Base):
@@ -62,83 +52,11 @@ class AgentLabelActivity(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
-def _normalized_label(value):
-    value = unicodedata.normalize("NFC", value)
-    if any(unicodedata.category(char) in {"Cc", "Cf", "Cs", "Zl", "Zp"} for char in value):
-        return None
-    value = value.strip()
-    return value if 1 <= len(value) <= 64 and not _SECRET_LABEL.search(value) else None
-
-
-def _activity_label(request, event):
-    headers = request.headers.getlist("X-Lockbot-Agent-Label")
-    if headers:
-        if len(headers) != 1:
-            return None
-        value = headers[0]
-        if not value or len(value) > 768 or not value.isascii() or re.search(r"%(?![0-9A-Fa-f]{2})", value):
-            return None
-        try:
-            return _normalized_label(unquote(value, errors="strict"))
-        except UnicodeError:
-            return None
-    label = event.get("agent_label") if event else None
-    return "" if label is None else _normalized_label(label)
-
-
-def _client_ip(request):
-    # ASGI supplies the peer (or the server's explicitly trusted proxy result).
-    # Untrusted forwarding headers do not supply a second observation.
-    try:
-        host = request.client.host if request.client else ""
-        return str(ipaddress.ip_address(host)) if "%" not in host else None
-    except ValueError:
-        return None
-
-
-def _write_label_activity(db, actor, label, client_ip, observed_at):
-    # The aggregate write already holds SQLite's write lock. Recheck the exact
-    # binding generation before touching detail and keep the bound in this transaction.
-    binding = db.get(ResourceBinding, actor.binding_record_id)
-    if binding is None or binding.public_id != actor.binding_public_id:
-        return
-    bot = db.get(Bot, actor.bot_id)
-    if (
-        bot is None
-        or bot.is_deleted
-        or not bot.resource_auth_enabled
-        or binding.credential_generation != actor.credential_generation
-        or not db.scalar(select(valid_binding_filter(bot, _utcnow())).where(ResourceBinding.id == binding.id))
-    ):
-        return
-    record = AgentLabelActivity
-    current = db.get(record, (binding.id, label))
-    if current is not None and (
-        current.last_seen_at > observed_at
-        or (current.last_observed_ip == client_ip and current.last_seen_at > observed_at - _MIN_ACTIVITY_UPDATE)
-    ):
-        return
-    if current is None:
-        db.add(record(binding_id=binding.id, agent_label=label, last_observed_ip=client_ip, last_seen_at=observed_at))
-        if label:
-            db.flush()
-            overflow = (
-                select(record.agent_label)
-                .where(record.binding_id == binding.id, record.agent_label != "")
-                .order_by(record.last_seen_at.desc(), record.agent_label)
-                .offset(MAX_TRACKED_LABELS)
-            )
-            db.execute(delete(record).where(record.binding_id == binding.id, record.agent_label.in_(overflow)))
-    else:
-        current.last_observed_ip = client_ip
-        current.last_seen_at = observed_at
-
-
 def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _record(engine, actor, kind, status, label, client_ip, observed_at):
+def _record(engine, actor, kind, status, observed_at):
     values = {
         "binding_id": actor.binding_record_id,
         "read_requests": int(kind == "read"),
@@ -166,12 +84,6 @@ def _record(engine, actor, kind, status, label, client_ip, observed_at):
                 },
             )
             db.execute(statement)
-            if label is not None and 200 <= status < 400:
-                try:
-                    with db.begin_nested():
-                        _write_label_activity(db, actor, label, client_ip, observed_at)
-                except Exception:
-                    logger.exception("Agent label activity write failed for binding %s", actor.binding_record_id)
             db.commit()
     except Exception:
         logger.exception("Agent activity write failed for binding %s", actor.binding_record_id)
@@ -204,8 +116,6 @@ def install_activity_middleware(app):
                         actor,
                         kind,
                         status,
-                        _activity_label(request, event),
-                        _client_ip(request),
                         _utcnow(),
                     )
                 if event is not None:

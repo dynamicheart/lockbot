@@ -14,6 +14,7 @@ from lockbot.backend.app.resource_auth.pending import (
     InProcessPendingBindingStore,
     PendingCapExceeded,
     PendingCollision,
+    PersonalBindingReceipt,
 )
 
 WINDOW = 600
@@ -29,13 +30,12 @@ def store():
     return InProcessPendingBindingStore()
 
 
-def _create(store, code="CODE1234", *, source="1.2.3.4", now=None, binding_id=None, label=None, window=WINDOW):
+def _create(store, code="CODE1234", *, source="1.2.3.4", now=None, binding_id=None, window=WINDOW):
     return store.create(
         binding_id=binding_id or credentials.generate_public_id(),
         code_digest=credentials.digest_bind_code(code),
         credential_digest=credentials.digest_credential("lbr_" + code),
         source=source,
-        label=label,
         window_seconds=window,
         now=now or _now(),
         **CAPS,
@@ -225,6 +225,38 @@ class TestCaps:
             _create(store, code="CODEFFFF", source="9.9.9.9")
         assert exc.value.scope == "per-source"
 
+    def test_confirmed_receipts_free_pending_slots_but_keep_the_total_bound(self, store):
+        now = _now()
+        capacity = CAPS["max_per_source"]
+        receipt = PersonalBindingReceipt("credential-id", "grant-id", 0)
+        for i in range(capacity):
+            record = _create(store, code=f"CODE{i:04d}", now=now)
+            _, token = store.reserve(record.code_digest, now=now)
+            store.finalize(token, receipt=receipt)
+            assert store.get(record.binding_id, now=now).receipt == receipt
+            assert store.reserve(record.code_digest, now=now) is None
+
+        # Retrievable receipts still occupy memory and cannot bypass the total bound.
+        with pytest.raises(PendingCapExceeded) as exc:
+            store.create(
+                binding_id="new-binding",
+                code_digest="next-code-digest",
+                credential_digest="proof-digest",
+                source=record.source,
+                window_seconds=WINDOW,
+                max_total=capacity,
+                max_per_source=capacity,
+                now=now,
+            )
+        assert exc.value.scope == "global"
+
+        for i in range(capacity):
+            _create(store, code=f"FRESH{i:04d}", now=now)
+
+        with pytest.raises(PendingCapExceeded) as exc:
+            _create(store, code="OVERFLOW", now=now)
+        assert exc.value.scope == "per-source"
+
     def test_a_different_source_is_unaffected_by_another_sources_cap(self, store):
         for i in range(CAPS["max_per_source"]):
             _create(store, code=f"CODE{i:04d}", source="9.9.9.9")
@@ -302,8 +334,8 @@ class TestIssuanceRetriesOnCollision:
         codes = iter(["DUPCODE1", "DUPCODE1", "UNIQUE23"])
         monkeypatch.setattr(service.credentials, "generate_bind_code", lambda: next(codes))
 
-        first = service.create_binding(label="a")
-        second = service.create_binding(label="b")  # first code collides, retry succeeds
+        first = service.create_binding()
+        second = service.create_binding()  # first code collides, retry succeeds
 
         assert first["binding_id"] != second["binding_id"]
         assert first["bind_code"] != second["bind_code"]

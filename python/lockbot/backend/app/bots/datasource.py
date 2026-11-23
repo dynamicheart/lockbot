@@ -85,5 +85,12 @@ def public_datasource(bot):
         return None
 
 
+def agent_metrics_source(bot):
+    source = public_datasource(bot)
+    if source and source["profile"] == "lockbot-v1" and source["accessMode"] == "short_lived":
+        return source
+    return None
+
+
 def serialized_datasource(config):
     return json.dumps(config.model_dump(), ensure_ascii=False) if config is not None else None

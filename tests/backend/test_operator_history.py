@@ -152,28 +152,3 @@ def test_bounded_scan_handles_corruption_and_partial_records(client, operator, t
     assert len(actors) == len(set(actors)) == 12
     for params in ({"limit": 101}, {"limit": 0}, {"query": "x" * 129}, {"cursor": "x" * 257}):
         assert client.get(path, params=params, headers=operator["op_headers"]).status_code == 422
-
-
-def test_usage_update_and_delete_preserve_available_previous_public_category(client, operator, monkeypatch):
-    monkeypatch.setattr("lockbot.backend.app.resource_api.usage.bot_manager", operator["manager"])
-    bot_id = operator["bot_id"]
-    command = client.post(
-        f"/api/bots/{bot_id}/commands",
-        headers=operator["headers"],
-        json={"command": "lock n1 1h", "purpose": "private-purpose", "task_category": "operator_testing"},
-    )
-    assert command.status_code == 200
-    path = f"/api/bots/{bot_id}/usage-declarations/n1"
-    assert (
-        client.put(
-            path, headers=operator["headers"], json={"purpose": "private-updated", "task_category": "unit_testing"}
-        ).status_code
-        == 200
-    )
-    assert client.delete(path, headers=operator["headers"]).status_code == 200
-    history = client.get(f"/api/bots/{bot_id}/op/history", headers=operator["op_headers"]).json()["items"]
-    updated = next(row for row in history if row["operation"] == "usage.update")
-    deleted = next(row for row in history if row["operation"] == "usage.delete")
-    assert updated["previous_task_category"] == "operator_testing" and updated["task_category"] == "unit_testing"
-    assert deleted["previous_task_category"] == "unit_testing"
-    assert "private-" not in json.dumps(history)

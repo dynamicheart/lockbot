@@ -64,7 +64,7 @@ def test_non_personal_keys_are_rejected(panel, credential):
 
 def test_pending_binding_cannot_login(panel):
     provider, _ = panel
-    pending = service.create_binding(label="pending-agent")
+    pending = service.create_binding()
     with pytest.raises(native.ProviderError):
         provider.authenticate(pending["credential"])
 
@@ -86,7 +86,7 @@ def test_one_key_previews_only_recoverable_account_groups(panel, api, db_session
     )
     db_session.add(second)
     db_session.commit()
-    issued = service.create_binding(label="second-bot-agent")
+    issued = service.create_binding()
     service.handle_chat_binding(
         platform="infoflow", external_user_id="alice", bot_id=second.id, action="bind", argument=issued["bind_code"]
     )
@@ -532,7 +532,7 @@ def test_distinct_bots_default_to_distinct_realms_until_attested(panel, api, db_
     )
     db_session.add(second)
     db_session.commit()
-    issued = service.create_binding(label="second-bot-agent")
+    issued = service.create_binding()
     service.handle_chat_binding(
         platform="infoflow", external_user_id="alice", bot_id=second.id, action="bind", argument=issued["bind_code"]
     )
@@ -585,20 +585,21 @@ def test_only_original_binding_reads_task_on_current_hold(panel, api, client, db
     assert client.post(url, headers=api["headers"], json={"command": "lock n1 1h"}).status_code == 200
     row = _binding(db_session, grant)
     _, snapshot = api["bot"].state_snapshot()
-    from lockbot.backend.app.resource_api.usage import holding_proof, store_declaration
+    from lockbot.backend.app.resource_api.usage import UsageDeclaration, holding_proof
 
     now = datetime.now(timezone.utc)
-    store_declaration(
-        db_session,
-        bot_id=api["bot_id"],
-        binding_id=row.id,
-        resource_id="n1",
-        purpose="Synthetic detailed note",
-        agent_label="fixture-agent",
-        proof=holding_proof(snapshot, "n1", "alice", now=now.timestamp()),
-        now=now.replace(tzinfo=None),
-        ttl_seconds=3600,
-        task_category="unit_testing",
+    db_session.add(
+        UsageDeclaration(
+            bot_id=api["bot_id"],
+            binding_id=row.id,
+            resource_id="n1",
+            purpose="Synthetic detailed note",
+            agent_label="fixture-agent",
+            holding_proof=holding_proof(snapshot, "n1", "alice", now=now.timestamp()),
+            updated_at=now.replace(tzinfo=None),
+            expires_at=now.replace(tzinfo=None) + timedelta(hours=1),
+            task_category="unit_testing",
+        )
     )
     db_session.commit()
     own = provider.report(grant)[0]["allocations"]

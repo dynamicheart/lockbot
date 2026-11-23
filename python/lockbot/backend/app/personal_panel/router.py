@@ -10,11 +10,13 @@ from collections import deque
 from datetime import datetime, timezone
 from threading import Event, Lock
 from time import monotonic
+from typing import Literal
 from urllib.parse import urlsplit
 
 from anyio import CapacityLimiter, to_thread
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring, MayHaveExecuted
 
@@ -27,6 +29,20 @@ from .sessions import PanelSessions
 COOKIE = "__Host-lockbot_me"
 PUBLIC_FIELDS = ("issuer", "platform", "realm", "subject", "scope")
 PRINCIPAL_FIELDS = ("issuer", "platform", "realm", "subject")
+
+
+class CatalogQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account: str | None = Field(default=None, max_length=64)
+    node: str | None = Field(default=None, min_length=1, max_length=256)
+    model: str | None = Field(default=None, min_length=1, max_length=96)
+    unit: Literal["any", "node", "card"] = "any"
+    available: bool | None = None
+    mine: bool = False
+    view: Literal["list", "wait"] = "list"
+    resource_ref: str | None = Field(default=None, pattern=r"^res_[0-9a-f]{32}$")
+    cursor: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 def public_identity(grant):
@@ -126,6 +142,7 @@ def create_panel(
     metadata_adapter=None,
     metadata_pins=None,
     native_handoff=None,
+    native_v2=None,
 ):
     upstream = panel_origin(origin, allow_private_http)
     secure = upstream.scheme == "https"
@@ -139,6 +156,21 @@ def create_panel(
     # Reporters and third-party identity providers do not acquire native key
     # authority by returning similarly shaped metadata or display names.
     native_connections = type(provider) is NativeProvider
+    external_credential_label = None
+    if native_v2 is not None:
+        from .native_v2 import NativeV2Provider
+
+        if (
+            type(native_v2) is not NativeV2Provider
+            or native_v2.issuer != origin
+            or native_connections
+            or native_handoff
+        ):
+            raise ValueError("V2 browser access requires a same-origin provider and no v1 Key handoff")
+        if provider is not native_v2:
+            external_credential_label = getattr(provider, "workbench_credential_label", None)
+            if not isinstance(external_credential_label, str) or not 0 < len(external_credential_label) <= 32:
+                raise ValueError("The external provider must declare its own workbench credential")
     credential_views = CredentialViews(sessions) if native_connections else None
     if metadata_adapter is not None:
         from .metadata import pinned_services
@@ -173,6 +205,7 @@ def create_panel(
             return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
         browser_post = request.method == "POST" and request.url.path.rsplit("/", 1)[-1] not in (
             "links",
+            "v2-links",
             "account-links",
             "credential-view-links",
             "credential-rotation-links",
@@ -193,6 +226,8 @@ def create_panel(
         return response
 
     def provider_for(grant):
+        if native_v2 is not None and native_v2.owns(grant):
+            return native_v2
         if native_handoff is not None and native_handoff.owns_handoff_grant(grant):
             return native_handoff
         return provider
@@ -238,6 +273,16 @@ def create_panel(
             "transport": "https" if secure else "private-http",
             **(
                 {
+                    "v2_login": {
+                        "issue_path": request.url.path.rsplit("/", 1)[0] + "/v2-links",
+                        "external_provider": external_credential_label,
+                    }
+                }
+                if native_v2 is not None
+                else {}
+            ),
+            **(
+                {
                     "connection_management": {
                         "version": 1,
                         "list_path": request.url.path.rsplit("/", 1)[0] + "/connections",
@@ -278,10 +323,7 @@ def create_panel(
             ),
         }
 
-    def issue_handoff(request, *, recover_groups):
-        auth = request.headers.get("authorization", "")
-        if request.headers.get("origin") or not auth.startswith("Bearer ") or not 0 < len(auth[7:]) <= 8192:
-            raise HTTPException(401, "A bound agent credential is required")
+    def charge_login_budget():
         with rate_lock:
             now = monotonic()
             while recent and recent[0] < now - 60:
@@ -289,13 +331,22 @@ def create_panel(
             if len(recent) >= 120:
                 raise HTTPException(429, headers={"Retry-After": "60"})
             recent.append(now)
-        authenticator = account_provider if recover_groups else provider
+
+    def authenticate_grant(authenticator, key):
         try:
-            grant = authenticator.authenticate(auth[7:])
+            grant = authenticator.authenticate(key)
         except Exception:
             raise HTTPException(401, "Binding unavailable") from None
         if not grant or provider_for(grant) is not authenticator or not valid(grant):
             raise HTTPException(401, "Binding unavailable")
+        return grant
+
+    def issue_handoff(request, authenticator, *, recover_groups=False):
+        auth = request.headers.get("authorization", "")
+        if request.headers.get("origin") or not auth.startswith("Bearer ") or not 0 < len(auth[7:]) <= 8192:
+            raise HTTPException(401, "A bound agent credential is required")
+        charge_login_budget()
+        grant = authenticate_grant(authenticator, auth[7:])
         try:
             recovered = authenticator.recover_panel_grants(grant) if recover_groups else ()
             token = sessions.issue(grant, recovered)
@@ -307,13 +358,19 @@ def create_panel(
 
     @app.post("/links")
     def issue(request: Request):
-        return issue_handoff(request, recover_groups=False)
+        return issue_handoff(request, provider)
+
+    @app.post("/v2-links")
+    def issue_v2(request: Request):
+        if native_v2 is None:
+            raise HTTPException(404)
+        return issue_handoff(request, native_v2)
 
     @app.post("/account-links")
     def issue_account(request: Request):
         if account_provider is None:
             raise HTTPException(404)
-        return issue_handoff(request, recover_groups=True)
+        return issue_handoff(request, account_provider, recover_groups=True)
 
     @app.post("/credential-view-links")
     def issue_credential_view(request: Request):
@@ -549,11 +606,38 @@ def create_panel(
         mode, _, suffix = mode.partition("_")
         include_recovered = suffix == "account"
         inspect_ticket(data["ticket"], include_recovered=include_recovered)
+        return finish_login(request, data["ticket"], mode, include_recovered=include_recovered)
+
+    @app.post("/v2-key")
+    async def v2_key_login(request: Request):
+        if native_v2 is None:
+            raise HTTPException(404)
+        return await key_login(request, native_v2)
+
+    @app.post("/external-key")
+    async def external_key_login(request: Request):
+        if external_credential_label is None:
+            raise HTTPException(404)
+        return await key_login(request, provider)
+
+    async def key_login(request, authenticator):
+        data = await fields(request, ["key", "mode"])
+        if data["mode"] not in ("append", "replace"):
+            raise HTTPException(400)
+
+        def establish():
+            charge_login_budget()
+            grant = authenticate_grant(authenticator, data["key"].strip())
+            return finish_login(request, sessions.issue(grant), data["mode"])
+
+        return await to_thread.run_sync(establish)
+
+    def finish_login(request, token, mode, *, include_recovered=False):
         if mode == "append" and not live(request):
             raise HTTPException(401)
         try:
             cookie = sessions.consume(
-                data["ticket"], request.cookies.get(cookie_name), mode=mode, include_recovered=include_recovered
+                token, request.cookies.get(cookie_name), mode=mode, include_recovered=include_recovered
             )
         except ValueError:
             raise HTTPException(410, "Login link or session invalid") from None
@@ -594,8 +678,53 @@ def create_panel(
             "authenticated": bool(identities),
             "identities": identities,
             "same_person_groups": groups,
+            **(
+                {
+                    "native_v2": {
+                        "accounts": [
+                            {
+                                "id": connection_id(grant),
+                                "platform": grant["platform"],
+                                "subject": grant["subject"],
+                            }
+                            for grant in grants
+                            if native_v2.owns(grant)
+                        ],
+                        "external_provider": external_credential_label,
+                        "external_accounts": [
+                            {"id": connection_id(grant), "platform": grant["platform"], "subject": grant["subject"]}
+                            for grant in grants
+                            if not native_v2.owns(grant)
+                        ],
+                    }
+                }
+                if native_v2 is not None
+                else {}
+            ),
             **({"workbench_plugins": {"resource_reporters": len(reporters)}} if identities else {}),
         }
+
+    @app.post("/catalog")
+    def catalog(request: Request, filters: CatalogQuery):
+        if native_v2 is None:
+            raise HTTPException(404)
+        cookie = request.cookies.get(cookie_name)
+        grants = [
+            grant
+            for grant in live(request)
+            if native_v2.owns(grant) and (filters.account is None or filters.account == connection_id(grant))
+        ]
+        if not grants:
+            raise HTTPException(401)
+        if len(grants) != 1:
+            raise HTTPException(409, "Select a V2 account")
+        grant = grants[0]
+        result = native_v2.query(
+            grant, **filters.model_dump(exclude={"account"}), include_people=filters.resource_ref is not None
+        )
+        if grant not in sessions.grants(cookie) or not valid(grant):
+            raise HTTPException(401)
+        return result
 
     @app.post("/logout")
     async def logout(request: Request):
@@ -619,7 +748,11 @@ def create_panel(
         def unavailable(status):
             return HTTPException(status, {"code": "panel_binding_unavailable", "recovery_instructions": recovery_guide})
 
-        original = sessions.grants(request.cookies.get(cookie_name))
+        original = [
+            grant
+            for grant in sessions.grants(request.cookies.get(cookie_name))
+            if native_v2 is None or not native_v2.owns(grant)
+        ]
         grants = [grant for grant in original if valid(grant)]
         if not grants:
             raise unavailable(401)
@@ -785,7 +918,7 @@ def create_panel(
         # Existing reporter registrations are scoped to the configured provider.
         return (provider, *reporters) if owner is provider else (owner,)
 
-    report_selectors = (provider, *reporters, native_handoff)
+    report_selectors = (provider, *reporters, native_handoff, native_v2)
 
     def read_groups(grant, source):
         identity_source = source is provider_for(grant)

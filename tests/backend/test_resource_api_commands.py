@@ -313,7 +313,6 @@ class TestAgentAccessSwitch:
         assert off.json()["resource_auth_enabled"] is False
         for method, suffix, payload in [
             ("GET", "resources", None),
-            ("GET", "usage-declarations", None),
             ("POST", "commands", {"command": "unlock n1"}),
         ]:
             response = client.request(

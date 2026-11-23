@@ -39,10 +39,10 @@ def test_notification_switch_suppresses_only_api_broadcasts(client, api, auth_he
     assert "training worker" not in text and "开发训练功能" not in text
     assert "另有" not in text
     for field in ("agent_label", "purpose"):
-        invalid = client.post(
+        legacy_request = client.post(
             path + "/commands", headers=api["headers"], json={"command": "query n1", field: "line1\nline2"}
         )
-        assert invalid.status_code == 422
+        assert legacy_request.status_code == 200
 
 
 def test_both_preferences_save_atomically_and_owner_controls_them(client, auth_header, admin_header):
@@ -115,7 +115,7 @@ def test_help_skill_discovery_obeys_current_saved_agent_switch(client, api, db_s
     db_session.commit()
     row = db_session.get(Bot, api["bot_id"])
     bot = NodeBot(config_dict=_build_config_dict(row, db_session))
-    url = "https://lockbot.example/api/agent-skill"
+    url = "https://lockbot.example/api/agent/v2/skill/lockbot.zip"
     assert bot._agent_skill_url() == url
     assert "bindings" in bot.adapter.extract_reply_text(bot.print_help("alice"))
     row.resource_auth_enabled = False

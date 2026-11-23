@@ -232,11 +232,11 @@ const text = (value, limit = 2048) => {
   return value
 }
 function installation(value, origin = location.origin) {
-  if (value?.skill_id !== 'lockbot-resource-agent') throw new Error('invalid_metadata')
+  if (value?.skill_id !== 'lockbot') throw new Error('invalid_metadata')
   const result = { skill_id: value.skill_id }
   for (const [field, path] of Object.entries({
-    bundle_url: '/api/agent-skill/lockbot-resource-agent.zip',
-    manifest_url: '/api/agent-skill',
+    bundle_url: '/api/agent/v2/skill/lockbot.zip',
+    manifest_url: '/api/agent/v2/manifest',
   })) {
     const url = new URL(text(value[field]))
     if (

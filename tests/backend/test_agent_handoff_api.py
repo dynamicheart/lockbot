@@ -13,7 +13,6 @@ from backend.test_resource_api_resources import api  # noqa: F401
 @pytest.mark.parametrize("api", ["NODE", "QUEUE_DEVICE"], indirect=True)
 @pytest.mark.parametrize("mode", ["command_only", "public_category", "private_details"])
 def test_authenticated_handoff_first_http_operation(client, api, monkeypatch, mode):
-    monkeypatch.setattr("lockbot.backend.app.resource_api.usage.bot_manager", api["manager"])
     origin, reference = str(client.base_url).rstrip("/"), "keyring:fixture-resource-group"
     context_response = client.get("/api/agent/context", headers=api["headers"])
     assert context_response.status_code == 200
@@ -40,7 +39,7 @@ def test_authenticated_handoff_first_http_operation(client, api, monkeypatch, mo
     # This exact encoded result is the HTTP body: no merging of child fields afterward.
     encoded = json.dumps(payload).encode()
     assert b"arbitrary_child_field" not in encoded
-    assert (b"fictional-private-purpose" in encoded) == (mode == "private_details")
+    assert b"fictional-private-purpose" not in encoded
     assert (b"task_category" in encoded) == (mode == "public_category")
     response = client.post(
         fresh["links"]["commands"],
@@ -54,11 +53,10 @@ def test_authenticated_handoff_first_http_operation(client, api, monkeypatch, mo
     assert len(node["current_users"]) == 1
     assert node["current_users"][0]["user_id"] == "alice"
     for headers in [api["headers"], api["other_headers"]]:
-        own = headers is api["headers"]
         snapshot = client.get(fresh["links"]["resources"], headers=headers)
         assert snapshot.status_code == 200
-        assert ("fictional-private-purpose" in snapshot.text) == (own and mode == "private_details")
-        assert ("fictional-private-agent" in snapshot.text) == (own and mode == "private_details")
+        assert ("fictional-private-purpose" in snapshot.text) is False
+        assert ("fictional-private-agent" in snapshot.text) is False
         assert ("unit_testing" in snapshot.text) == (mode == "public_category")
 
 

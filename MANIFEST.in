@@ -2,3 +2,6 @@ include README.md
 include LICENSE
 recursive-include python/lockbot/core/i18n *.py
 recursive-include tools *.py
+exclude python/lockbot/backend/app/agent_skill/SKILL.md
+prune python/lockbot/backend/app/agent_skill/scripts
+prune python/lockbot/backend/app/agent_skill/references

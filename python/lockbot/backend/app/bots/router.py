@@ -307,6 +307,7 @@ def _agent_skill_url(bot_id, expected_uuid):
     from urllib.parse import urlsplit
 
     from lockbot.backend.app.database import SessionLocal
+    from lockbot.backend.app.resource_api.v2.skill import SKILL_URL
     from lockbot.backend.app.settings.router import get_all_settings
 
     with SessionLocal() as session:
@@ -317,7 +318,7 @@ def _agent_skill_url(bot_id, expected_uuid):
         parsed = urlsplit(base)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             return ""
-        return base.split("#", 1)[0].rstrip("/") + "/api/agent-skill"
+        return base.split("#", 1)[0].rstrip("/") + SKILL_URL
 
 
 def _personal_panel_url(bot_id, expected_uuid):
