@@ -518,29 +518,6 @@
         </div>
       </el-card>
 
-      <el-card v-if="agentMetrics.length" style="margin-bottom: 20px">
-        <template #header>
-          <div style="display: flex; justify-content: space-between; align-items: center">
-            <span :title="$t('agentActivity.summaryHelp')">{{
-              $t('agentActivity.statistics')
-            }}</span>
-            <el-button size="small" @click="loadAgentSummary">{{ $t('common.refresh') }}</el-button>
-          </div>
-        </template>
-        <el-row :gutter="20" style="row-gap: 12px">
-          <el-col v-for="metric in agentMetrics" :key="metric.key" :xs="12" :sm="8" :lg="4">
-            <div class="detail-stat-box">
-              <div class="detail-stat-number">
-                {{ agentSummary?.[metric.key] ?? '—' }}
-              </div>
-              <div class="detail-stat-desc">
-                {{ $t(`agentActivity.${metric.label}`) }}
-              </div>
-            </div>
-          </el-col>
-        </el-row>
-      </el-card>
-
       <!-- Cluster State -->
       <el-card style="margin-bottom: 20px">
         <template #header>
@@ -663,7 +640,6 @@
                   class="agent-sections"
                   aria-label="Agent"
                 >
-                  <el-option value="access" :label="$t('botDetail.agentAccessStats')" />
                   <el-option value="history" :label="$t('botDetail.agentOperations')" />
                   <el-option value="audit" :label="$t('botDetail.agentAuthorizations')" />
                 </el-select>
@@ -680,14 +656,8 @@
                   />
                 </el-tooltip>
               </div>
-              <AgentActivity
-                v-if="agentTab === 'access'"
-                :bot-id="bot.id"
-                :hide-heading="true"
-                @updated="loadAgentSummary"
-              />
               <AgentHistory
-                v-else-if="agentTab === 'history'"
+                v-if="agentTab === 'history'"
                 :bot-id="bot.id"
                 :include-private="privateTaskView"
               />
@@ -763,7 +733,6 @@ import { ref, computed, onMounted, onBeforeUnmount, provide, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
-import AgentActivity from '../components/AgentActivity.vue'
 import AgentHistory from '../components/AgentHistory.vue'
 import { actorDisplayKey, useFeishuDisplayNames } from '../utils/useFeishuDisplayNames'
 import ServiceTrafficPanel from '../components/ServiceTrafficPanel.vue'
@@ -797,20 +766,7 @@ const routeGeneration = ref(0)
 const authStore = useAuthStore()
 
 const activityTab = ref('logs')
-const agentTab = ref('access')
-const agentSummary = ref(null)
-const agentMetrics = computed(() =>
-  canEdit.value || authStore.isAdmin
-    ? [
-        { key: 'authorizations', label: 'authorizations' },
-        { key: 'usage_registrations', label: 'usageRegistrations' },
-        { key: 'reads', label: 'reads' },
-        { key: 'writes', label: 'writes' },
-        { key: 'refused', label: 'refused' },
-        { key: 'limited', label: 'limited' },
-      ]
-    : []
-)
+const agentTab = ref('history')
 
 const bot = ref(null)
 const nodeAddresses = ref(new Map())
@@ -1102,28 +1058,6 @@ function formatDuration(seconds) {
 // - admin: can only VIEW other users' bots, cannot start/stop/edit/delete
 // - user: can only operate own bots, no transfer
 const canEdit = computed(() => authStore.canEditBot(bot.value))
-
-async function loadAgentSummary() {
-  const target = captureBot()
-  if (!target || (!canEdit.value && !authStore.isAdmin)) return
-  const read = detailScope.begin('summary')
-  if (!read) return
-  try {
-    const { data } = await api.get(`/bots/${read.id}/agent-summary`, { signal: read.signal })
-    if (read.isCurrent()) agentSummary.value = data
-  } catch {
-    if (read.isCurrent()) agentSummary.value = null
-  } finally {
-    read.finish()
-  }
-}
-watch(
-  () => bot.value,
-  () => {
-    agentSummary.value = null
-    loadAgentSummary()
-  }
-)
 
 const canDelete = computed(() => canEdit.value)
 const canOperate = computed(() => authStore.canOperateBot(bot.value))
@@ -1661,7 +1595,6 @@ watch(
     stateData.value = null
     stateUsage.value = []
     commandLogs.value = []
-    agentSummary.value = null
     resourceMetrics.value = { enabled: false }
     cachedUsers.value = []
     editingState.value = viewJson.value = false
@@ -1673,7 +1606,7 @@ watch(
     botLanguage.value = 'zh'
     loading.value = false
     activityTab.value = 'logs'
-    agentTab.value = 'access'
+    agentTab.value = 'history'
     stateAutoRefresh.value = false
     clearInterval(stateTimer)
     stateTimer = null

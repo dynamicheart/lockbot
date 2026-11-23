@@ -500,6 +500,7 @@ export default {
 
     allBots: '全部有已验证请求的机器人',
     byCredential: '按凭证',
+    byAgentToken: '按 Agent 令牌',
     groupBy: '分组方式',
     credential: '用户 / 调用类型',
     credentialKinds: {
@@ -816,8 +817,9 @@ export default {
   // === Bot List ===
   botList: {
     filterByPlatform: '按平台筛选',
-    agent_authorizations: 'Agent 有效授权',
-    agent_usage_registrations: '有效用途登记',
+    agent_tokens: 'Agent 令牌',
+    agent_requests_hour: 'Agent 访问（近 60 分钟）',
+    agent_operations_hour: 'Agent 操作（近 60 分钟）',
     title: '我的机器人',
     searchPlaceholder: '按名称搜索...',
     filterByStatus: '按状态筛选',
@@ -1055,16 +1057,15 @@ export default {
     summaryHelp: '授权按用户和机器人计数；多个 Agent 可共享授权。用途按当前有效的资源登记计数。',
     expandPurpose: '展开完整用途',
     statistics: 'Agent 统计',
-    platformStatistics: '平台 Agent 统计',
     active: '有效授权',
     history: '历史授权',
     all: '全部',
     expired: '已失效',
-    authorizations: '有效用户授权',
-    usageRegistrations: '当前用途登记',
+    tokens: 'Agent 令牌',
 
     title: 'Agent 访问情况',
-    description: '按用户授权汇总，共享 Key 的 Agent 合并计量。',
+    description: '统计每个 v2 令牌在本服务的访问，覆盖它授权的所有机器人。',
+    inactive: '无有效授权',
     empty: '暂无 Agent 访问记录',
     user: '用户 / 授权备注',
     labelHelp: '备注由调用方自述，不作为身份凭据。',

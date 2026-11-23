@@ -262,9 +262,15 @@
             <el-option value="sources" :label="$t('serviceTraffic.bySource')" />
             <el-option value="routes" :label="$t('serviceTraffic.byRoute')" />
             <el-option value="credentials" :label="$t('serviceTraffic.byCredential')" />
+            <el-option
+              v-if="showAgentTokens && !selectedBot"
+              value="agentTokens"
+              :label="$t('serviceTraffic.byAgentToken')"
+            />
           </el-select>
         </template>
-        <el-table :data="rows" size="default">
+        <AgentActivity v-if="grouping === 'agentTokens'" hide-heading />
+        <el-table v-else :data="rows" size="default">
           <el-table-column
             :label="
               grouping === 'sources'
@@ -323,7 +329,7 @@
             }}</template></el-table-column
           >
         </el-table>
-        <div class="traffic-footer">
+        <div v-if="grouping !== 'agentTokens'" class="traffic-footer">
           <span v-if="!props.botId && !selectedBot"
             >{{ $t('serviceTraffic.unattributed') }}
             {{ number(snapshot.unattributed_requests) }}</span
@@ -341,6 +347,7 @@
 
 <script setup>
 import ServiceTrafficHistory from './ServiceTrafficHistory.vue'
+import AgentActivity from './AgentActivity.vue'
 import { platformLabel } from '../utils/platformDisplay'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { Refresh, ChatDotRound, Cpu, Setting, QuestionFilled } from '@element-plus/icons-vue'
@@ -355,6 +362,7 @@ import { agentActivitySummary } from '../utils/agentActivity'
 const props = defineProps({
   botId: { type: [Number, String], default: null },
   includePrivate: { type: Boolean, default: false },
+  showAgentTokens: Boolean,
 })
 const { locale, t } = useI18n()
 const period = ref('live')
@@ -488,6 +496,9 @@ const refresh = () => {
   return loader.refresh()
 }
 watch(grouping, clearMinute)
+watch(selectedBot, (bot) => {
+  if (bot && grouping.value === 'agentTokens') grouping.value = 'sources'
+})
 watch(live, (showLive) => {
   clearMinute()
   if (showLive) refresh()

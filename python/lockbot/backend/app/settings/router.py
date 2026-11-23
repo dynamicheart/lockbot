@@ -7,7 +7,7 @@ import re
 import unicodedata
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
@@ -96,10 +96,14 @@ class PlatformStats(BaseModel):
     running_bots: int
     agent_authorizations: int = 0
     agent_usage_registrations: int = 0
+    agent_tokens: int = 0
+    agent_requests_hour: int | None = None
+    agent_operations_hour: int | None = None
 
 
 @router.get("/api/public/stats", response_model=PlatformStats)
 def get_public_stats(
+    request: Request,
     _user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -107,12 +111,17 @@ def get_public_stats(
     total_users = db.query(sa_func.count(User.id)).scalar()
     total_bots = db.query(sa_func.count(Bot.id)).filter(Bot.is_deleted.is_(False)).scalar()
     running_bots = db.query(sa_func.count(Bot.id)).filter(Bot.is_deleted.is_(False), Bot.status == "running").scalar()
-    from lockbot.backend.app.resource_api.activity import agent_summary
+    from lockbot.backend.app.resource_api.activity import agent_summary, count_v2_agent_tokens
 
     summary = agent_summary(db, db.query(Bot).filter(Bot.is_deleted.is_(False)).all())
+    traffic = getattr(request.app.state, "service_traffic", None)
+    recent_requests, recent_operations = traffic.recent_agent_totals() if traffic is not None else (None, None)
     return PlatformStats(
         agent_authorizations=summary["authorizations"],
         agent_usage_registrations=summary["usage_registrations"],
+        agent_tokens=summary["authorizations"] + count_v2_agent_tokens(db, datetime.utcnow()),
+        agent_requests_hour=recent_requests,
+        agent_operations_hour=recent_operations,
         total_users=total_users,
         total_bots=total_bots,
         running_bots=running_bots,
@@ -172,16 +181,16 @@ def batch_update_settings(
         ):
             raise HTTPException(status_code=422, detail=f"{key} must be plain single-line text (max 120 characters)")
     if {"feishu_proxy_mode", "feishu_proxy_url"} & body.settings.keys():
-        from lockbot.core.platforms.feishu_proxy import validate_proxy_url
+        from lockbot.core.platforms.feishu_proxy import validate_proxy_urls
 
         mode = body.settings.get("feishu_proxy_mode", _get_setting(db, "feishu_proxy_mode"))
         value = body.settings.get("feishu_proxy_url", _get_setting(db, "feishu_proxy_url")) or ""
         try:
             if mode not in {"deployment", "direct", "custom"}:
                 raise ValueError("Invalid Feishu proxy mode")
-            if mode == "custom" and not value:
+            urls = validate_proxy_urls(value)
+            if mode == "custom" and not urls:
                 raise ValueError("A Feishu proxy URL is required")
-            validate_proxy_url(value)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
     updated = []

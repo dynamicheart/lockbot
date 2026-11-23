@@ -4,15 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, and_, case, delete, func, or_, select, tuple_
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    and_,
+    case,
+    delete,
+    func,
+    or_,
+    select,
+    tuple_,
+)
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from lockbot.backend.app.auth.dependencies import get_current_user
+from lockbot.backend.app.auth.dependencies import get_current_user, require_super_admin
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import Base, get_db
@@ -20,10 +36,11 @@ from lockbot.backend.app.resource_api.privacy import audit_private_read, private
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/bots", tags=["bots"])
+router = APIRouter(tags=["bots"])
 AGENT_ACTIVITY_WINDOW_SECONDS = 3600
 AGENT_ACTIVITY_RETENTION = timedelta(days=30)
 MAX_TRACKED_LABELS = 32
+_COUNTERS = ("read_requests", "write_requests", "refused_requests", "limited_requests")
 
 
 class AgentActivity(Base):
@@ -36,6 +53,90 @@ class AgentActivity(Base):
     limited_requests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_status: Mapped[int] = mapped_column(Integer, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class V2AgentActivity(Base):
+    __tablename__ = "agent_v2_activity"
+
+    principal_id: Mapped[str] = mapped_column(ForeignKey("agent_v2_credentials.public_id"), primary_key=True)
+    read_requests: Mapped[int] = mapped_column(Integer, nullable=False)
+    write_requests: Mapped[int] = mapped_column(Integer, nullable=False)
+    refused_requests: Mapped[int] = mapped_column(Integer, nullable=False)
+    limited_requests: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_status: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class V2ActivityRecorder:
+    """Write completed requests in batches and keep database I/O off the v2 request path."""
+
+    def __init__(self, engine):
+        self.engine = engine
+        self._pending = {}
+        self._lock = threading.Lock()
+        self._flush_lock = threading.Lock()
+        self._stop = asyncio.Event()
+
+    def record(self, principal_id, method, status):
+        row = {
+            "principal_id": principal_id,
+            "read_requests": int(method in {"GET", "HEAD"}),
+            "write_requests": int(method not in {"GET", "HEAD"}),
+            "refused_requests": int(status >= 400),
+            "limited_requests": int(status == 429),
+            "last_status": status,
+            "last_seen_at": _utcnow(),
+        }
+        with self._lock:
+            self._merge(row)
+
+    def _merge(self, row):
+        previous = self._pending.setdefault(row["principal_id"], row)
+        if previous is row:
+            return
+        for field in _COUNTERS:
+            previous[field] += row[field]
+        if previous["last_seen_at"] <= row["last_seen_at"]:
+            previous.update(last_seen_at=row["last_seen_at"], last_status=row["last_status"])
+
+    def flush(self):
+        with self._flush_lock:
+            with self._lock:
+                pending, self._pending = self._pending, {}
+            if not pending:
+                return
+            statement = insert(V2AgentActivity)
+            incoming = statement.excluded
+            statement = statement.on_conflict_do_update(
+                index_elements=[V2AgentActivity.principal_id],
+                set_={
+                    **{key: getattr(V2AgentActivity, key) + getattr(incoming, key) for key in _COUNTERS},
+                    "last_status": case(
+                        (V2AgentActivity.last_seen_at <= incoming.last_seen_at, incoming.last_status),
+                        else_=V2AgentActivity.last_status,
+                    ),
+                    "last_seen_at": func.max(V2AgentActivity.last_seen_at, incoming.last_seen_at),
+                },
+            )
+            try:
+                with self.engine.begin() as conn:
+                    conn.execute(statement, list(pending.values()))
+            except SQLAlchemyError:
+                with self._lock:
+                    for row in pending.values():
+                        self._merge(row)
+                logger.warning("Could not persist batched Agent v2 counters")
+
+    async def run(self):
+        while True:
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self._stop.wait(), timeout=5)
+            await asyncio.to_thread(self.flush)
+            if self._stop.is_set():
+                return
+
+    def stop(self):
+        self._stop.set()
 
 
 class AgentLabelActivity(Base):
@@ -100,6 +201,10 @@ def install_activity_middleware(app):
             return response
         finally:
             duration_ms = (time.monotonic() - started) * 1000
+            principal = getattr(request.state, "v2_activity_principal", None)
+            recorder = getattr(request.app.state, "v2_agent_activity", None)
+            if principal is not None and recorder is not None:
+                recorder.record(principal, request.method, status)
             actor = getattr(request.state, "resource_actor", None)
             engine = getattr(request.state, "resource_activity_engine", None)
             if actor is not None:
@@ -250,7 +355,7 @@ def agent_summary(db, bots):
     return totals
 
 
-@router.get("/{bot_id}/agent-summary")
+@router.get("/api/bots/{bot_id}/agent-summary")
 def get_agent_summary(
     bot_id: int, response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
@@ -261,7 +366,49 @@ def get_agent_summary(
     return agent_summary(db, [bot])
 
 
-@router.get("/{bot_id}/agent-activity")
+def v2_agent_grants(now):
+    from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
+    from lockbot.backend.app.resource_api.v2.binding import PersonalCredential, PersonalGrant
+
+    platform = func.lower(Bot.platform)
+    grant_valid = func.coalesce(
+        and_(
+            Bot.is_deleted.is_(False),
+            Bot.resource_auth_enabled.is_(True),
+            PersonalGrant.bot_uuid == Bot.uuid,
+            PersonalGrant.bot_revision == Bot.identity_revision,
+            or_(Bot.binding_accept_after.is_(None), PersonalGrant.confirmed_at > Bot.binding_accept_after),
+            platform == PersonalCredential.platform,
+            or_(
+                and_(platform == "infoflow", PersonalCredential.namespace == "infoflow"),
+                and_(platform == "feishu", PersonalCredential.namespace == "feishu:" + FeishuApplication.app_id),
+            ),
+        ),
+        False,
+    )
+    expired = and_(
+        PersonalCredential.credential_expires_at.is_not(None), PersonalCredential.credential_expires_at <= now
+    )
+    query = (
+        select(
+            PersonalGrant.principal_id,
+            and_(grant_valid, ~expired).label("active"),
+        )
+        .select_from(PersonalGrant)
+        .join(PersonalCredential, PersonalCredential.public_id == PersonalGrant.principal_id)
+        .join(Bot, Bot.id == PersonalGrant.bot_id)
+        .outerjoin(FeishuGroupRoute, and_(FeishuGroupRoute.bot_id == Bot.id, FeishuGroupRoute.chat_id == Bot.group_id))
+        .outerjoin(FeishuApplication, FeishuApplication.id == FeishuGroupRoute.application_id)
+    )
+    return query
+
+
+def count_v2_agent_tokens(db, now):
+    grants = v2_agent_grants(now).subquery()
+    return db.scalar(select(func.count(func.distinct(grants.c.principal_id))).where(grants.c.active)) or 0
+
+
+@router.get("/api/bots/{bot_id}/agent-activity")
 def get_agent_activity(
     bot_id: int,
     response: Response,
@@ -331,3 +478,52 @@ def get_agent_activity(
     if private and items:
         audit_private_read(db, user, bot_id=bot_id, surface="management.agent_activity")
     return dict(bot_id=bot_id, total=total, page=page, limit=limit, items=items)
+
+
+@router.get("/api/admin/agent-activity")
+def get_service_agent_activity(
+    response: Response,
+    status: str = Query("active", pattern="^(active|history|all)$"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    _user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.resource_api.v2.binding import PersonalCredential
+
+    response.headers["Cache-Control"] = "no-store"
+    now = _utcnow()
+    grants = v2_agent_grants(now).subquery()
+    active = (
+        select(grants.c.principal_id)
+        .where(grants.c.active, grants.c.principal_id == PersonalCredential.public_id)
+        .exists()
+    )
+    query = (
+        select(
+            PersonalCredential.platform,
+            PersonalCredential.external_user_id,
+            active.label("active"),
+            and_(
+                PersonalCredential.credential_expires_at.is_not(None), PersonalCredential.credential_expires_at <= now
+            ).label("expired"),
+            *(func.coalesce(getattr(V2AgentActivity, key), 0).label(key) for key in _COUNTERS),
+            V2AgentActivity.last_seen_at,
+        )
+        .select_from(PersonalCredential)
+        .outerjoin(V2AgentActivity, V2AgentActivity.principal_id == PersonalCredential.public_id)
+    )
+    if status != "all":
+        query = query.where(active if status == "active" else ~active)
+    total = db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = db.execute(
+        query.order_by(V2AgentActivity.last_seen_at.desc(), PersonalCredential.public_id)
+        .offset((page - 1) * limit)
+        .limit(limit)
+    ).mappings()
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "items": [dict(row, version="v2", row_key=f"{page}:{index}") for index, row in enumerate(rows)],
+    }

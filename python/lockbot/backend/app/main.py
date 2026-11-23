@@ -540,6 +540,7 @@ async def lifespan(app: FastAPI):
     backup_scheduler.start()
 
     from lockbot.backend.app.broadcast.service import broadcast_worker
+    from lockbot.backend.app.resource_api.activity import V2ActivityRecorder
     from lockbot.backend.app.resource_api.notifications import notification_budget
     from lockbot.backend.app.resource_api.usage_cleanup import usage_cleanup_loop
 
@@ -547,10 +548,14 @@ async def lifespan(app: FastAPI):
     broadcast_worker.start()
     usage_cleanup = asyncio.create_task(usage_cleanup_loop())
     idle_observation = asyncio.create_task(observer.run()) if observer else None
+    app.state.v2_agent_activity = V2ActivityRecorder(engine)
+    agent_activity_flush = asyncio.create_task(app.state.v2_agent_activity.run())
     app.state.service_history.start()
     try:
         yield
     finally:
+        app.state.v2_agent_activity.stop()
+        await agent_activity_flush
         if idle_observation is not None:
             idle_observation.cancel()
             with suppress(asyncio.CancelledError):

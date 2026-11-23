@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createRenderer, h, nextTick, reactive, ssrContextKey } from 'vue'
-import AgentActivity from './AgentActivity.vue'
 import AgentHistory from './AgentHistory.vue'
 import BotAudit from './BotAudit.vue'
 import ServiceTrafficPanel from './ServiceTrafficPanel.vue'
@@ -72,7 +71,6 @@ afterEach(() => {
 })
 
 it.each([
-  ['activity', AgentActivity],
   ['history', AgentHistory],
   ['authorization audit', BotAudit],
 ])(

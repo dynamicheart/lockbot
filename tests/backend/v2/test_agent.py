@@ -207,6 +207,38 @@ def finish(client, challenge, *, proof=None):
     )
 
 
+def test_management_activity_identifies_v2_tokens_and_counts_recent_verified_access(
+    client, auth_header, admin_header, db_session, session_factory, monkeypatch
+):
+    from lockbot.backend.app.auth.models import User
+
+    monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
+    client.app.state.v2_agent_activity.engine = session_factory.kw["bind"]
+    bot_id = make_bot(client, auth_header, "Versioned statistics")
+    before = client.get("/api/public/stats", headers=auth_header).raise_for_status().json()
+    challenge = issue(client)
+    chat(bot_id, challenge)
+    key = finish(client, challenge).raise_for_status().json()["credential"]
+    assert client.get(API + "/bindings", headers=bearer(key)).status_code == 200
+    assert client.delete(API + "/bindings/missing-grant", headers=bearer(key)).status_code == 404
+    assert client.get(API + "/resources", headers=bearer("lbv2_unknown")).status_code == 401
+    client.app.state.v2_agent_activity.flush()
+    path = "/api/admin/agent-activity"
+    assert client.get(path, headers=auth_header).status_code == 403
+    admin = db_session.query(User).filter_by(username="adminuser").one()
+    admin.role = "super_admin"
+    db_session.commit()
+    activity = client.get(path, headers=admin_header).raise_for_status().json()
+    assert activity["total"] == 1
+    assert activity["items"][0]["version"] == "v2"
+    assert activity["items"][0]["read_requests"] == 1
+    assert activity["items"][0]["write_requests"] == activity["items"][0]["refused_requests"] == 1
+    assert client.get(f"/api/bots/{bot_id}/agent-activity", headers=auth_header).json()["total"] == 0
+    stats = client.get("/api/public/stats", headers=auth_header).raise_for_status().json()
+    assert stats["agent_tokens"] == before["agent_tokens"] + 1
+    assert stats["agent_requests_hour"] == before["agent_requests_hour"] + 2
+
+
 def test_v2_binding_source_capacity_releases_confirmed_slot(client, auth_header, session_factory, monkeypatch):
     from lockbot.backend.app import config
 

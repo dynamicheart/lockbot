@@ -522,6 +522,7 @@ export default {
 
     allBots: 'All bots with verified traffic',
     byCredential: 'By credential',
+    byAgentToken: 'By Agent token',
     groupBy: 'Group by',
     credential: 'User / caller type',
     credentialKinds: {
@@ -845,8 +846,9 @@ export default {
   // === Bot List ===
   botList: {
     filterByPlatform: 'Filter by platform',
-    agent_authorizations: 'Active Agent authorizations',
-    agent_usage_registrations: 'Active task registrations',
+    agent_tokens: 'Agent tokens',
+    agent_requests_hour: 'Agent requests (past hour)',
+    agent_operations_hour: 'Agent operations (past hour)',
     title: 'My Bots',
     searchPlaceholder: 'Search by name...',
     filterByStatus: 'Filter by status',
@@ -1095,16 +1097,15 @@ export default {
       'Authorizations count user–bot pairs and may be shared by Agents. Tasks count current valid resource declarations.',
     expandPurpose: 'Show full purpose',
     statistics: 'Agent statistics',
-    platformStatistics: 'Platform Agent statistics',
     active: 'Active',
     history: 'Historical',
     all: 'All',
     expired: 'Invalid',
-    authorizations: 'Active user authorizations',
-    usageRegistrations: 'Current task declarations',
+    tokens: 'Agent tokens',
 
     title: 'Agent activity',
-    description: 'Grouped by user authorization. Agents sharing a key share these counters.',
+    description: 'v2 requests are totaled per token across its authorized bots on this service.',
+    inactive: 'No active grants',
     empty: 'No Agent activity',
     user: 'User / authorization label',
     labelHelp: 'Caller-declared label; not proof of identity.',

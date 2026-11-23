@@ -46,9 +46,7 @@
             </div>
             <div class="actor-note">
               <span>{{ platformLabel(row.platform, $t) }}</span>
-              <el-tooltip :content="t('agentActivity.labelHelp')" placement="top">
-                <span class="authorization-label">{{ row.label || '—' }}</span>
-              </el-tooltip>
+              <span v-if="row.version">{{ row.version }}</span>
             </div>
           </template>
         </el-table-column>
@@ -59,9 +57,9 @@
                 t(
                   row.active
                     ? 'agentActivity.active'
-                    : row.revoked
-                      ? 'agentActivity.revoked'
-                      : 'agentActivity.expired'
+                    : row.expired
+                      ? 'agentActivity.expired'
+                      : 'agentActivity.inactive'
                 )
               }}
             </el-tag>
@@ -81,7 +79,7 @@
                 'count-zero': !row[metric.key],
                 'count-warning': metric.warning && row[metric.key] > 0,
               }"
-              >{{ number(row[metric.key]) }}</span
+              >{{ row[metric.key] == null ? '—' : number(row[metric.key]) }}</span
             >
           </template>
         </el-table-column>
@@ -114,19 +112,14 @@
 
 <script setup>
 import { platformLabel } from '../utils/platformDisplay'
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { useActorDisplay } from '../utils/useFeishuDisplayNames'
 import { formatActivityTime } from '../utils/activityDisplay'
 
-const props = defineProps({
-  hideHeading: { type: Boolean, default: false },
-  botId: { type: Number, required: true },
-  includePrivate: { type: Boolean, default: false },
-})
-const emit = defineEmits(['updated'])
+defineProps({ hideHeading: Boolean })
 const { t, locale } = useI18n()
 const actorNames = useActorDisplay()
 const items = ref([])
@@ -152,18 +145,16 @@ async function refresh() {
   loading.value = true
   error.value = false
   try {
-    const { data } = await api.get(`/bots/${props.botId}/agent-activity`, {
+    const { data } = await api.get('/admin/agent-activity', {
       params: {
         status: status.value,
         page: page.value,
         limit: 20,
-        include_private: props.includePrivate,
       },
     })
     if (current === generation) {
       items.value = data.items
       total.value = data.total
-      emit('updated')
     }
   } catch {
     if (current === generation) error.value = true
@@ -172,16 +163,6 @@ async function refresh() {
   }
 }
 onMounted(refresh)
-watch(
-  [() => props.botId, () => props.includePrivate],
-  () => {
-    items.value = []
-    total.value = 0
-    page.value = 1
-    refresh()
-  },
-  { flush: 'sync' }
-)
 onBeforeUnmount(() => generation++)
 </script>
 
