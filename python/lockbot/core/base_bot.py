@@ -560,16 +560,6 @@ class BaseLockBot:
         if extra_info is None:
             platform_url = self._get_site_value("platform_url") or self.config.get_val("PLATFORM_URL")
             github_url = self._get_site_value("github_url") or self.config.get_val("GITHUB_URL")
-            panel_url = self._personal_panel_url()
-            if panel_url:
-                help_links.extend(
-                    [
-                        "\n",
-                        (t("help.personal_panel", config=self.config), panel_url),
-                        "\n",
-                        t("help.personal_panel_hint", config=self.config),
-                    ]
-                )
             if platform_url or github_url or skill_url:
                 help_links.append("\n")
             if platform_url:

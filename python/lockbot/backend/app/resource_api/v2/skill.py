@@ -12,7 +12,7 @@ from lockbot.backend.app.resource_api.skill import _deployment_origin, _zip_skil
 
 SKILL_NAME = "lockbot"
 # Bump when releasing changes to the Skill instructions or bundled metadata.
-SKILL_VERSION = "1.0.0"
+SKILL_VERSION = "1.0.2"
 MANIFEST_URL = "/api/agent/v2/manifest"
 SKILL_PATH = "/skill/lockbot.zip"
 SKILL_URL = f"/api/agent/v2{SKILL_PATH}"
@@ -30,8 +30,7 @@ def _artifact(origin: str, release_manifest_url: str) -> tuple[bytes, str]:
     if origin:
         connection = (
             f"Service address: `{origin}`. For a first connection, run `lb login {origin}` "
-            "only after the user explicitly authorizes binding to this service. "
-            f"Select this service explicitly with `lb --origin {origin} resource list`."
+            "only after the user explicitly authorizes binding to this service."
         )
     install_source = "Ask the user for an approved internal lb release manifest URL before downloading."
     if release_manifest_url:
