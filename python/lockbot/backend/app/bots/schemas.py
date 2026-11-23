@@ -168,6 +168,7 @@ class BotOut(BaseModel):
     bot_type: str
     platform: str
     group_id: str | None
+    group_name: str | None = None
     observed_group_ids: str | None = None
     identity_revision: int = 0
     last_user_id: str | None

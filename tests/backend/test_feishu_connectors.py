@@ -1,9 +1,48 @@
 import json
 from contextlib import contextmanager
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
 from lockbot.backend.app.feishu import connectors
+
+
+def test_websocket_advances_proxy_only_after_closing_failed_child(monkeypatch, request):
+    from lockbot.core.platforms.feishu_proxy import RETRY_PROXY_EXIT, configure
+
+    first, backup = "http://primary.example:8188", "http://backup.example:8188"
+    configure("custom", f"{first}\n{backup}")
+    request.addfinalizer(configure)
+
+    @contextmanager
+    def factory():
+        app = SimpleNamespace(app_id="cli_test", transport="websocket")
+        yield SimpleNamespace(get=lambda *args: app)
+
+    connector = connectors.Connector(1, factory=factory)
+    attempts = []
+
+    class Process:
+        def __init__(self, index):
+            self.stdin = BytesIO()
+            self.stdout = BytesIO(b"" if index == 0 else b'{"status":"connected"}\n')
+            self.returncode = RETRY_PROXY_EXIT if index == 0 else 0
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout):
+            attempts.append(json.loads(self.stdin.getvalue())["proxy_url"])
+            if len(attempts) == 2:
+                connector._stop.set()
+            return self.returncode
+
+    monkeypatch.setattr(connectors, "credentials_for", lambda app: {"app_secret": "secret"})
+    monkeypatch.setattr(connectors, "credential_expiry", lambda app: None)
+    monkeypatch.setattr(connectors.subprocess, "Popen", lambda *a, **k: Process(len(attempts)))
+    connector._run()
+    assert attempts == [first, backup]
+    assert connector.snapshot()["last_handshake_at"]
 
 
 @pytest.mark.parametrize("mode,value", [("deployment", ""), ("custom", "http://site.example:8188"), ("direct", "")])

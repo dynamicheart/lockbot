@@ -290,6 +290,7 @@ export default {
     proxyDeployment: '使用服务器配置',
     proxyDirect: '直连',
     proxyCustom: '指定代理',
+    proxyAddresses: '每行一个 HTTP(S) 代理地址，按顺序尝试',
     proxyEffective: '当前生效',
     proxyTest: '测试已保存的 HTTP 连接',
     proxyHttpOk: 'HTTP 可用',

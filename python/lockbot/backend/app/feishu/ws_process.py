@@ -6,6 +6,7 @@ to use the same deduplication boundary as HTTP.
 """
 
 import json
+import os
 import sys
 
 
@@ -18,6 +19,7 @@ def main():
     import lark_oapi.ws.client as sdk_module
 
     from lockbot.backend.app.feishu.ws_proxy import configure_sdk_proxy
+    from lockbot.core.platforms.feishu_proxy import RETRY_PROXY_EXIT
 
     def connected():
         channel.write(json.dumps({"status": "connected"}) + "\n")
@@ -45,6 +47,8 @@ def main():
     client = lark.ws.Client(
         config["app_id"], config["app_secret"], event_handler=handler, log_level=lark.LogLevel.ERROR
     )
+    if config.get("rotate_proxy"):
+        client.on_reconnecting = lambda: os._exit(RETRY_PROXY_EXIT)
     client.start()
 
 

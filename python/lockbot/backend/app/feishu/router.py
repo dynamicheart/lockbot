@@ -279,12 +279,13 @@ def delete_application(
             db.query(FeishuReceivedMessage).filter_by(application_id=application_id).delete()
             app_id = app.app_id
             from lockbot.backend.app.feishu.models import (
+                FeishuDisplayLabel,
                 FeishuGroupMembership,
                 FeishuMembershipEvent,
                 FeishuMembershipPolicy,
             )
 
-            for model in (FeishuGroupMembership, FeishuMembershipEvent, FeishuMembershipPolicy):
+            for model in (FeishuDisplayLabel, FeishuGroupMembership, FeishuMembershipEvent, FeishuMembershipPolicy):
                 db.query(model).filter_by(application_id=app.id).delete()
             db.delete(app)
             db.commit()
@@ -431,8 +432,12 @@ def bot_group_info(
         raise HTTPException(404, "Feishu application not found")
     from lockbot.backend.app.feishu.membership import membership_status
 
-    result = {"chat_id": route.chat_id, **application_client(app).group_name(route.chat_id, refresh)}
     observation = membership_status(db, app, bot, route.chat_id)
+    result = {"chat_id": route.chat_id}
+    if observation is not None and observation["status"] == "removed":
+        result.update(name="", status="permission")
+    else:
+        result.update(application_client(app).group_name(route.chat_id, refresh))
     if observation is not None:
         result["membership"] = observation
     return result

@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.feishu.models import FeishuApplication
 from lockbot.backend.app.platform_applications.service import CredentialUnavailable, credential_expiry, credentials_for
-from lockbot.core.platforms.feishu_proxy import sdk_proxy_override
+from lockbot.core.platforms.feishu_proxy import RETRY_PROXY_EXIT, proxy_policy, sdk_proxy_override
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +70,15 @@ class Connector:
 
     def _run_loop(self):
         backoff = 2
+        proxy_index = 0
         while not self._stop.is_set():
             self._set_state("starting")
             process = None
             expiry_timer = None
+            startup_timer = None
+            handshake = threading.Event()
+            rotate_proxy = threading.Event()
+            urls = ()
             try:
                 with self.factory() as db:
                     app = db.get(FeishuApplication, self.application_id)
@@ -81,9 +86,12 @@ class Connector:
                         return
                     config = {"app_id": app.app_id, "app_secret": credentials_for(app)["app_secret"]}
                     deadline = credential_expiry(app)
-                    override = sdk_proxy_override()
+                    _, urls = proxy_policy()
+                    override = urls[proxy_index % len(urls)] if len(urls) > 1 else sdk_proxy_override()
                     if override is not None:
                         config["proxy_url"] = override
+                    if len(urls) > 1:
+                        config["rotate_proxy"] = True
                 with self._lock:
                     if self._stop.is_set():
                         return
@@ -107,6 +115,17 @@ class Connector:
                     expiry_timer.start()
                 process.stdin.write((json.dumps(config) + "\n").encode())
                 process.stdin.flush()
+                if len(urls) > 1:
+
+                    def abort_startup(process=process, handshake=handshake, rotate_proxy=rotate_proxy):
+                        if not handshake.is_set() and process.poll() is None:
+                            rotate_proxy.set()
+                            with suppress(ProcessLookupError):
+                                process.terminate()
+
+                    startup_timer = threading.Timer(20, abort_startup)
+                    startup_timer.daemon = True
+                    startup_timer.start()
                 while not self._stop.is_set():
                     line = process.stdout.readline(256 * 1024 + 1024)
                     if not line:
@@ -115,6 +134,9 @@ class Connector:
                         raise ValueError("Invalid connector frame")
                     frame = json.loads(line)
                     if frame == {"status": "connected"}:
+                        handshake.set()
+                        if startup_timer is not None:
+                            startup_timer.cancel()
                         self._set_state("running", handshake=True)
                         backoff = 2
                         logger.info("Feishu application %s WebSocket handshake completed", self.application_id)
@@ -140,6 +162,8 @@ class Connector:
             except Exception:
                 logger.warning("Feishu application %s connector stopped; retrying", self.application_id)
             finally:
+                if startup_timer is not None:
+                    startup_timer.cancel()
                 if expiry_timer is not None:
                     expiry_timer.cancel()
                 if process:
@@ -150,11 +174,18 @@ class Connector:
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=5)
+                    if len(urls) > 1 and process.returncode == RETRY_PROXY_EXIT:
+                        rotate_proxy.set()
                     process.stdin.close()
                     process.stdout.close()
                 with self._lock:
                     self._process = None
                     self._state = "stopped" if self._stop.is_set() else "retrying"
+            if len(urls) > 1 and rotate_proxy.is_set():
+                proxy_index += 1
+                if proxy_index % len(urls):
+                    self._stop.wait(1)
+                    continue
             self._stop.wait(backoff)
             backoff = min(backoff * 2, 60)
 

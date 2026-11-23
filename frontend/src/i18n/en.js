@@ -305,6 +305,7 @@ export default {
     proxyDeployment: 'Use server configuration',
     proxyDirect: 'Direct connection',
     proxyCustom: 'Site proxy',
+    proxyAddresses: 'One HTTP(S) proxy per line, in priority order',
     proxyEffective: 'Effective',
     proxyTest: 'Test saved HTTP connection',
     proxyHttpOk: 'HTTP available',

@@ -1,7 +1,7 @@
 """Apply one persisted site policy to Feishu HTTP and child-process WebSockets."""
 
 from lockbot.backend.app.settings.models import SiteSetting
-from lockbot.core.platforms.feishu_proxy import configure, http_options, sdk_proxy_override
+from lockbot.core.platforms.feishu_proxy import configure, proxy_policy
 
 
 def restore_proxy(db):
@@ -17,11 +17,11 @@ def apply_proxy(db):
     from lockbot.backend.app.feishu.service import _clients, _clients_lock
 
     try:
-        before = (http_options(), sdk_proxy_override())
+        before = proxy_policy()
     except ValueError:
         before = None  # A valid site policy can recover from an invalid deployment setting.
     restore_proxy(db)
-    after = (http_options(), sdk_proxy_override())
+    after = proxy_policy()
     factory = sessionmaker(bind=db.get_bind())
     db.rollback()  # No database transaction spans receiver stop/start or remote I/O.
     if before == after:
