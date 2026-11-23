@@ -127,7 +127,9 @@ def test_agent_v2_publishes_downloadable_skill(client, monkeypatch):
     assert "`lb login https://lockbot.example.test:8155`" in markdown
     assert "Use `lb resource list` to search all saved, authorized connections" in markdown
     assert "only after the user explicitly authorizes binding" in markdown
-    assert "If more than one target matches, ask the user" in markdown
+    assert "If the user gives only a duration" in markdown
+    assert "first run `lb resource view <user-supplied target> --json`" in markdown
+    assert "Consider busy matches as well as available ones" in markdown
     assert "A label, node name, or bot name is not hardware evidence" in markdown
     assert "Proceed only after a fresh, complete result confirms the target." in markdown
     assert "If it cannot be confirmed, report the result as unknown and stop." in markdown
