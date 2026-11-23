@@ -60,7 +60,11 @@ def test_deployment_skill_uses_the_configured_address(client, monkeypatch):
     with ZipFile(BytesIO(download.content)) as bundle:
         markdown = bundle.read("lockbot/SKILL.md")
     assert b"lb login http://192.0.2.10:8155" in markdown
-    assert b"lb --origin http://192.0.2.10:8155 resource list" in markdown
+    assert b"Use `lb resource list` to search all saved, authorized connections" in markdown
+    assert b"lb --origin http://192.0.2.10:8155" not in markdown
+    assert markdown.index(b"ask whether the user wants to start group authorization") < markdown.index(
+        b"lb login http://192.0.2.10:8155"
+    )
     assert b"untrusted.example" not in markdown
     assert skill["sha256"] != generic["sha256"]
     assert hashlib.sha256(download.content).hexdigest() == skill["sha256"]

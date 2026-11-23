@@ -125,7 +125,7 @@ def test_agent_v2_publishes_downloadable_skill(client, monkeypatch):
     assert markdown.startswith("---\nname: lockbot\n")
     assert sha256(response.content).hexdigest() == release["sha256"]
     assert "`lb login https://lockbot.example.test:8155`" in markdown
-    assert "`lb --origin https://lockbot.example.test:8155 resource list`" in markdown
+    assert "Use `lb resource list` to search all saved, authorized connections" in markdown
     assert "only after the user explicitly authorizes binding" in markdown
     assert "If more than one target matches, ask the user" in markdown
     assert "A label, node name, or bot name is not hardware evidence" in markdown
