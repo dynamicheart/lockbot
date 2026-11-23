@@ -1,5 +1,7 @@
 """Publish the service-owned Agent API v2 Skill."""
 
+import os
+import re
 from functools import lru_cache
 from hashlib import sha256
 from importlib.resources import files
@@ -19,7 +21,7 @@ class SkillZip(Response):
 
 
 @lru_cache(maxsize=4)
-def _artifact(origin: str) -> tuple[bytes, str]:
+def _artifact(origin: str, release_manifest_url: str) -> tuple[bytes, str]:
     source = files("lockbot.backend.app").joinpath("agent_skill")
     template = source.joinpath("v2.md").read_text(encoding="utf-8")
     connection = "Ask the user for the LockBot service address before signing in."
@@ -29,14 +31,29 @@ def _artifact(origin: str) -> tuple[bytes, str]:
             "only after the user explicitly authorizes binding to this service. "
             f"Select this service explicitly with `lb --origin {origin} resource list`."
         )
-    markdown = template.replace("{{LOCKBOT_CONNECTION}}", connection, 1).encode()
+    install_source = "Ask the user for an approved internal lb release manifest URL before downloading."
+    if release_manifest_url:
+        install_source = f"Internal lb release manifest: `{release_manifest_url}`."
+    markdown = (
+        template.replace("{{LOCKBOT_CONNECTION}}", connection, 1)
+        .replace("{{LOCKBOT_LB_INSTALL_SOURCE}}", install_source, 1)
+        .encode()
+    )
     metadata = source.joinpath("agents/openai.yaml").read_bytes()
     content = _zip_skill(markdown, SKILL_NAME, {"agents/openai.yaml": metadata})
     return content, sha256(content).hexdigest()
 
 
+def _configured_artifact() -> tuple[bytes, str]:
+    url = os.environ.get("LB_RELEASE_MANIFEST_URL", "").strip()
+    # The unauthenticated ZIP must never contain userinfo or a signed query.
+    if not re.fullmatch(r"https://[A-Za-z0-9.-]+/[A-Za-z0-9._~/-]+", url):
+        url = ""
+    return _artifact(_deployment_origin(), url)
+
+
 def skill_release() -> dict[str, str]:
-    return {"name": SKILL_NAME, "download_url": SKILL_URL, "sha256": _artifact(_deployment_origin())[1]}
+    return {"name": SKILL_NAME, "download_url": SKILL_URL, "sha256": _configured_artifact()[1]}
 
 
 def skill_metadata() -> dict[str, str]:
@@ -46,7 +63,7 @@ def skill_metadata() -> dict[str, str]:
 
 
 def download_skill() -> SkillZip:
-    content, digest = _artifact(_deployment_origin())
+    content, digest = _configured_artifact()
     return SkillZip(
         content,
         headers={

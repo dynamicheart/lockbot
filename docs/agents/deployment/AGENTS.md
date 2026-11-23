@@ -30,6 +30,10 @@ origin of the reverse proxy when applicable. Include the scheme and published po
 Compose passes this value to the service. A direct `docker run` can pass it through
 `--env-file` or `-e PLATFORM_URL=...`. The Agent API v2 manifest at
 `/api/agent/v2/manifest` links to the Skill ZIP and publishes its SHA-256.
+
+For internal distributions, set `LB_RELEASE_MANIFEST_URL` to the HTTPS BOS
+release manifest. The address is visible to anyone who can download the Skill ZIP.
+Use an address without embedded credentials or signed query parameters.
 The Skill includes this deployment address and the Go `lb` commands for selecting
 it. Confirm the address and digest on the upgraded service after startup.
 

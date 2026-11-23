@@ -64,6 +64,34 @@ def test_deployment_skill_uses_the_configured_address(client, monkeypatch):
     assert download.headers["etag"] == f'"{skill["sha256"]}"'
 
 
+@pytest.mark.parametrize(
+    ("url", "included"),
+    [
+        ("https://releases.example.test/lb/releases/latest.json", True),
+        ("http://releases.example.test/lb/releases/latest.json", False),
+        ("https://releases.example.test/lb/releases/latest.json?token=private", False),
+    ],
+)
+def test_skill_zip_includes_only_a_configured_https_release_manifest(client, monkeypatch, url, included):
+    monkeypatch.delenv("LB_RELEASE_MANIFEST_URL", raising=False)
+
+    def read_skill():
+        skill = client.get("/api/agent/v2/manifest").raise_for_status().json()["skill"]
+        response = client.get(skill["download_url"]).raise_for_status()
+        assert hashlib.sha256(response.content).hexdigest() == skill["sha256"]
+        with ZipFile(BytesIO(response.content)) as bundle:
+            return skill["sha256"], bundle.read("lockbot/SKILL.md").decode()
+
+    fallback_hash, fallback = read_skill()
+    monkeypatch.setenv("LB_RELEASE_MANIFEST_URL", url)
+    digest, markdown = read_skill()
+    assert (url in markdown) is included
+    assert (digest != fallback_hash) is included
+    assert "`command -v lb`" in markdown
+    assert "Ask the user for an approved internal lb release manifest URL" in fallback
+    assert "{{LOCKBOT_LB_INSTALL_SOURCE}}" not in markdown
+
+
 def command(client, case, text, headers=None):
     response = client.post(
         f"/api/bots/{case['bot_id']}/commands", headers=headers or case["headers"], json={"command": text}
