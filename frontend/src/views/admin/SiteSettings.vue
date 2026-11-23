@@ -114,9 +114,12 @@
               v-if="form.feishu_proxy_mode === 'custom'"
               v-model="form.feishu_proxy_url"
               type="textarea"
-              :autosize="{ minRows: 2, maxRows: 5 }"
-              :placeholder="$t('feishu.proxyAddresses')"
+              :autosize="{ minRows: 4, maxRows: 8 }"
+              :aria-label="$t('feishu.proxy')"
             />
+            <div v-if="form.feishu_proxy_mode === 'custom'" class="platform-hint">
+              {{ $t('feishu.proxyAddresses') }}
+            </div>
             <div class="proxy-effective platform-hint">
               {{ $t('feishu.proxyEffective') }}:
               {{
