@@ -25,7 +25,6 @@ import lockbot.backend.app.platform_applications.service  # noqa: F401
 import lockbot.backend.app.resource_auth.models  # noqa: F401
 import lockbot.backend.app.settings.models  # noqa: F401
 from lockbot.backend.app.admin.router import router as admin_router
-from lockbot.backend.app.audit.delegation import router as audit_delegation_router
 from lockbot.backend.app.audit.router import router as audit_router
 from lockbot.backend.app.auth.router import router as auth_router
 from lockbot.backend.app.backup.router import router as backup_router
@@ -781,7 +780,6 @@ def create_app() -> FastAPI:
     app.include_router(platform_applications_router)
     # Dedicated note-delegation contracts belong to administrator documentation.
     # Keep the authenticated routes unchanged, but omit them from anonymous schemas.
-    app.include_router(audit_delegation_router, include_in_schema=False)
     app.include_router(configuration_delegation_router)
     app.include_router(backup_router)
     from lockbot.backend.app.resource_api.discovery import router as discovery_router

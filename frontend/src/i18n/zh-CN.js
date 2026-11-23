@@ -72,7 +72,6 @@ export default {
     nodeInventory: '上传节点硬件',
     nodeInventoryHint: '允许上传节点硬件盘点和采集时间。',
     title: '配置凭证',
-    auditTab: '审计凭证',
     guideSelectTitle: '机器人管理员',
     guideSelect: '选好授权范围，私发凭证。',
     guideShareTitle: '维护 Agent',

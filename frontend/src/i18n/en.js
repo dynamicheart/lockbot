@@ -74,7 +74,6 @@ export default {
     nodeInventory: 'Upload node hardware',
     nodeInventoryHint: 'Allows uploading a node hardware inventory and its observation time.',
     title: 'Configuration credentials',
-    auditTab: 'Audit credentials',
     guideSelectTitle: 'Bot administrator',
     guideSelect: 'Choose the bots and permissions, then share the credential privately.',
     guideShareTitle: 'Maintenance Agent',

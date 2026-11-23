@@ -113,6 +113,14 @@ def test_manual_node_json_saves_login_and_hardware_together(client, auth_header,
     assert document["registered_hardware"] == {"node1": hardware}
 
 
+def test_retired_task_note_credentials_have_no_routes(client, admin_header):
+    assert client.get("/api/admin/audit-credentials", headers=admin_header).status_code == 404
+    assert client.post("/api/admin/audit-credentials", headers=admin_header, json={}).status_code in {404, 405}
+    assert client.get("/api/audit/bots/1/task-notes", headers=admin_header).status_code == 404
+    assert client.get("/api/audit/bots/1/agent-history", headers=admin_header).status_code == 404
+    assert client.get("/api/audit/logs", headers=admin_header).status_code == 200
+
+
 def test_existing_credentials_survive_the_additive_deletion_migration(monkeypatch):
     engine = create_engine("sqlite://")
     try:
