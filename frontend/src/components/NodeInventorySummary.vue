@@ -24,12 +24,7 @@
       <template #default="{ row }">
         <template v-if="row.observedAt">
           <div>{{ formatDateTime(row.observedAt) }}</div>
-          <div>
-            {{ t('nodeInformation.scope.' + row.scope) }}
-            <span v-if="now - Date.parse(row.observedAt) > 15 * 60_000">
-              · {{ t('nodeInformation.stale') }}
-            </span>
-          </div>
+          <div>{{ t('nodeInformation.scope.' + row.scope) }}</div>
         </template>
         <span v-else>—</span>
       </template>
@@ -44,12 +39,10 @@ import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
 import { useHelpers } from '../utils/helpers'
 import { formatNodeAccess } from '../utils/nodeAccess'
-import { useDisplayClock } from '../utils/useDisplayClock'
 
 const props = defineProps({ botId: { type: Number, required: true } })
 const { t, locale } = useI18n()
 const { formatDateTime } = useHelpers()
-const now = useDisplayClock()
 const inventory = ref(null)
 const failed = ref(false)
 const controller = new AbortController()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preview or upload fresh exporter inventory from an approved node mapping."""
+"""Preview or register exporter inventory from an approved node mapping."""
 
 import argparse
 import json
@@ -35,8 +35,8 @@ def observation(entry, now):
     if saved["source_id"] != entry["source_id"] or saved["coverage"] != "visible":
         raise ValueError("Inventory source or coverage mismatch")
     stamp = datetime.fromisoformat(saved["observed_at"].replace("Z", "+00:00"))
-    if stamp.tzinfo is None or not now - timedelta(minutes=15) <= stamp <= now + timedelta(minutes=2):
-        raise ValueError("Inventory is stale or its clock is ahead")
+    if stamp.tzinfo is None or stamp > now + timedelta(minutes=2):
+        raise ValueError("Invalid inventory observation time")
     devices = saved["devices"]
     if not devices or any(not card.get("model") for card in devices):
         raise ValueError("No verified accelerator models")

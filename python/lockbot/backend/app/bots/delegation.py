@@ -18,6 +18,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from lockbot.backend.app import config
 from lockbot.backend.app.audit.models import AuditLog
+from lockbot.backend.app.audit.service import write_audit_log
 from lockbot.backend.app.auth.dependencies import get_current_user
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.datasource import UtilizationConfig, public_datasource, serialized_datasource
@@ -30,7 +31,12 @@ from lockbot.backend.app.bots.node_access import (
     saved_node_access,
     serialize_node_access,
 )
-from lockbot.backend.app.bots.node_hardware import saved_node_hardware
+from lockbot.backend.app.bots.node_hardware import (
+    WHOLE_MACHINE_TYPES,
+    parse_node_hardware,
+    saved_node_hardware,
+    serialize_node_hardware,
+)
 from lockbot.backend.app.bots.node_inventory import inventory_document, update_inventory
 from lockbot.backend.app.bots.router import _owned_bot, _require_bot_owner
 from lockbot.backend.app.database import Base, get_db
@@ -132,6 +138,13 @@ class PreviewChange(BaseModel):
 
 class ApplyChange(PreviewChange):
     receipt: str = Field(max_length=80)
+
+
+class ManualNodeMapping(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    version: int = Field(ge=1, le=1)
+    nodes: dict[str, dict] = Field(min_length=1, max_length=512)
 
 
 def _now():
@@ -489,6 +502,84 @@ def get_node_inventory(
         "login_addresses": {node: value for node, value in saved_node_access(bot).items() if node in ids},
         "registered_hardware": saved_node_hardware(bot),
     }
+
+
+def _manual_node_changes(bot, document):
+    nodes = document.nodes
+    ids = set(_inventory(bot)["node_ids"])
+    if set(nodes) - ids or any(not entry or entry.keys() - {"login", "hardware"} for entry in nodes.values()):
+        _deny(422, "invalid_node_metadata_mapping")
+    login = {node: entry["login"] for node, entry in nodes.items() if "login" in entry}
+    hardware = {node: entry["hardware"] for node, entry in nodes.items() if "hardware" in entry}
+    if hardware and bot.bot_type not in WHOLE_MACHINE_TYPES:
+        _deny(422, "node_hardware_requires_whole_machine")
+    try:
+        parsed_login = parse_access_mapping(
+            json.dumps({"version": 2, "nodes": {node: entry for node, entry in login.items() if entry is not None}}),
+            ids,
+        )
+        parsed_hardware = parse_node_hardware(json.dumps({"version": 1, "nodes": hardware}))
+    except (ValueError, TypeError, RecursionError):
+        _deny(422, "invalid_node_metadata_mapping")
+    current_login, current_hardware = saved_node_access(bot), saved_node_hardware(bot)
+    changes = {}
+    for node in nodes:
+        before, after = {}, {}
+        if node in login and current_login.get(node) != parsed_login.get(node):
+            before["login"] = current_login.get(node)
+            after["login"] = parsed_login.get(node)
+        if node in hardware and current_hardware.get(node, []) != parsed_hardware[node]:
+            before["hardware"] = current_hardware.get(node, [])
+            after["hardware"] = parsed_hardware[node]
+        if after:
+            changes[node] = {"before": before, "after": after}
+    return changes, current_login, current_hardware
+
+
+@router.post("/api/bots/{bot_id}/node-inventory/preview", include_in_schema=False)
+def preview_manual_node_mapping(
+    bot_id: int, body: ManualNodeMapping, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    bot = _require_bot_owner(bot_id, user, db, "preview node settings")
+    changes, _, _ = _manual_node_changes(bot, body)
+    return {"changes": changes}
+
+
+@router.patch("/api/bots/{bot_id}/node-inventory", include_in_schema=False)
+def apply_manual_node_mapping(
+    bot_id: int,
+    body: ManualNodeMapping,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_bot_owner(bot_id, user, db, "change node settings")
+    with _owned_bot(bot_id, user, db) as bot, authority_guard(bot_id):
+        changes, login, hardware = _manual_node_changes(bot, body)
+        for node, change in changes.items():
+            for field, value in change["after"].items():
+                section = login if field == "login" else hardware
+                if value:
+                    section[node] = value
+                else:
+                    section.pop(node, None)
+        if changes:
+            if any("login" in change["after"] for change in changes.values()):
+                bot.node_access_config = serialize_node_access(login)
+            if any("hardware" in change["after"] for change in changes.values()):
+                bot.node_hardware_config = serialize_node_hardware(hardware)
+            write_audit_log(
+                db,
+                user,
+                "bot.update",
+                target_type="bot",
+                target_id=bot.id,
+                target_name=bot.name,
+                detail={"node_metadata": {"changed_nodes": len(changes)}},
+                ip=request.client.host if request.client else None,
+            )
+            db.commit()
+    return {"changed_nodes": len(changes)}
 
 
 @router.post("/api/bots/{bot_id}/configuration-access/preview", tags=["Public API"])

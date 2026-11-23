@@ -82,6 +82,37 @@ def test_inventory_upload_uses_bot_scope_and_keeps_other_observations(client, au
     assert client.get("/api/public-docs/configuration/AGENTS.md").raise_for_status().text.count(INVENTORY) == 2
 
 
+def test_manual_node_json_saves_login_and_hardware_together(client, auth_header, admin_header):
+    target = bot(client, auth_header, "combined settings")
+    path = f"/api/bots/{target}/node-inventory"
+    login = {"host": "node-01.example.test", "port": 22}
+    hardware = [{"model": "Example Device", "count": 4}]
+    mapping = {"version": 1, "nodes": {"node1": {"login": login, "hardware": hardware}}}
+
+    expected = {
+        "changes": {
+            "node1": {
+                "before": {"login": None, "hardware": []},
+                "after": {"login": login, "hardware": hardware},
+            }
+        }
+    }
+    assert client.post(path + "/preview", headers=auth_header, json=mapping).raise_for_status().json() == expected
+    assert client.patch(path, headers=admin_header, json=mapping).status_code == 403
+    invalid = {"version": 1, "nodes": {"node1": {"login": login, "hardware": [{"model": "bad", "count": 0}]}}}
+    assert client.patch(path, headers=auth_header, json=invalid).status_code == 422
+    assert client.get(path, headers=auth_header).raise_for_status().json()["login_addresses"] == {}
+    assert client.patch(path, headers=auth_header, json=mapping).raise_for_status().json() == {"changed_nodes": 1}
+    document = client.get(path, headers=auth_header).raise_for_status().json()
+    assert document["login_addresses"] == {"node1": login}
+    assert document["registered_hardware"] == {"node1": hardware}
+    removal = {"version": 1, "nodes": {"node1": {"login": None}}}
+    client.patch(path, headers=auth_header, json=removal).raise_for_status()
+    document = client.get(path, headers=auth_header).raise_for_status().json()
+    assert document["login_addresses"] == {}
+    assert document["registered_hardware"] == {"node1": hardware}
+
+
 def test_existing_credentials_survive_the_additive_deletion_migration(monkeypatch):
     engine = create_engine("sqlite://")
     try:

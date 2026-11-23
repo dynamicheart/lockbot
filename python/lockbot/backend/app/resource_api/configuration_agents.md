@@ -15,9 +15,9 @@ Read the Key from a private secret or file. Keep it out of commands, URLs, logs 
 4. Send the payload to `POST /api/bots/{bot_id}/configuration-access/preview`. Show the differences and ask for
    approval before the first write. Submit the same payload with the returned `receipt` to
    `PUT /api/bots/{bot_id}/configuration-access`. If the receipt is stale, fetch and preview again.
-5. For periodic inventory uploads, keep the selected node-to-source mapping in the collector's private
-   configuration. Send only new observations for those nodes. If a credential expires or a node no longer
-   matches, report it and preserve the last successful inventory.
+5. Register hardware once and collect it again when the machine changes. Keep the approved node-to-source
+   mapping in private configuration. LockBot records the observation time and retains the registered hardware
+   until it receives a newer observation for that node.
 
 ## Hardware inventory payload
 
@@ -43,7 +43,7 @@ Use the collector observation time with a timezone. Set scope to `host`, `contai
 Group cards by model and per-card memory. Omit unknown capacities or architecture rather than guessing.
 Upload only the documented fields. Use the private extension to handle hardware-specific private metadata.
 
-## Periodic uploads
+## Upload an inventory file
 
 Enable `inventory_output` in the existing exporter for the approved machines. Keep a private JSON
 mapping keyed by LockBot node ID. Each value contains `source_id` from the exporter and the local
@@ -54,7 +54,5 @@ mapping keyed by LockBot node ID. Each value contains `source_id` from the expor
 ```
 
 Run `scripts/datasource/upload_node_inventory.py` with `--origin`, `--bot`, `--key-file` and `--mapping`
-to preview. After the administrator confirms the mapping, use the same command with `--apply` from a
-timer on the collector host. Give the Key only the inventory scope for that bot. Rotate it before
-expiry. When a snapshot is missing, unreadable or more than 15 minutes old, the uploader skips that
-node and keeps its last successful observation.
+to preview. After the administrator confirms the mapping, run the same command with `--apply`.
+When a snapshot is missing or unreadable, the uploader skips that node and keeps its previous record.
