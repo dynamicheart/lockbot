@@ -85,7 +85,12 @@ def test_inventory_upload_uses_bot_scope_and_keeps_other_observations(client, au
 def test_manual_node_json_saves_login_and_hardware_together(client, auth_header, admin_header):
     target = bot(client, auth_header, "combined settings")
     path = f"/api/bots/{target}/node-inventory"
-    login = {"host": "node-01.example.test", "port": 22}
+    login = {
+        "host": "node-01.example.test",
+        "port": 22,
+        "method": "SSH via bastion",
+        "note": "Use the assigned account",
+    }
     hardware = [{"model": "Example Device", "count": 4}]
     mapping = {"version": 1, "nodes": {"node1": {"login": login, "hardware": hardware}}}
 
@@ -106,6 +111,18 @@ def test_manual_node_json_saves_login_and_hardware_together(client, auth_header,
     document = client.get(path, headers=auth_header).raise_for_status().json()
     assert document["login_addresses"] == {"node1": login}
     assert document["registered_hardware"] == {"node1": hardware}
+
+    # Older address-only clients can update the address without dropping guidance.
+    address = {"host": "node-01.example.test", "port": 2222}
+    login_path = f"/api/bots/{target}/node-access"
+    client.put(login_path, headers=auth_header, json={"version": 1, "nodes": {"node1": address}}).raise_for_status()
+    assert client.get(login_path, headers=auth_header).json()["nodes"]["node1"] == login | address
+
+    # Clearing a note is explicit, and the remaining guidance is still preserved.
+    clear_note = {"version": 1, "nodes": {"node1": {"login": address | {"note": None}}}}
+    client.patch(path, headers=auth_header, json=clear_note).raise_for_status()
+    assert client.get(login_path, headers=auth_header).json()["nodes"]["node1"] == address | {"method": login["method"]}
+
     removal = {"version": 1, "nodes": {"node1": {"login": None}}}
     client.patch(path, headers=auth_header, json=removal).raise_for_status()
     document = client.get(path, headers=auth_header).raise_for_status().json()

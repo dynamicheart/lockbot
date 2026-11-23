@@ -84,24 +84,22 @@ const error = ref('')
 const changes = ref(null)
 const path = computed(() => `/bots/${props.botId}/node-inventory`)
 const example = computed(() => {
-  const fields = ['      "login": { "host": "node-01.example.test", "port": 22 }']
-  if (props.canEditHardware) {
-    fields.push('      "hardware": [{ "model": "P900", "count": 4 }]')
+  const node = {
+    login: {
+      host: 'node-01.example.test',
+      port: 22,
+      method: t('nodeInformation.exampleLoginMethod'),
+      note: t('nodeInformation.exampleLoginNote'),
+    },
   }
-  return [
-    '{',
-    '  "version": 1,',
-    '  "nodes": {',
-    '    "node-01": {',
-    fields.join(',\n'),
-    '    }',
-    '  }',
-    '}',
-  ].join('\n')
+  if (props.canEditHardware) node.hardware = [{ model: 'P900', count: 4 }]
+  return JSON.stringify({ version: 1, nodes: { 'node-01': node } }, null, 2)
 })
 
 function loginText(login) {
-  return login ? formatNodeAccess(login) : '—'
+  return login
+    ? [formatNodeAccess(login), login.method, login.note].filter(Boolean).join(' · ')
+    : '—'
 }
 
 function hardwareText(cards) {

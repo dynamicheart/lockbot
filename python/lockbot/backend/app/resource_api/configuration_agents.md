@@ -8,7 +8,8 @@ Read the Key from a private secret or file. Keep it out of commands, URLs, logs 
 2. Show the node IDs. Ask which nodes to register and which approved login entry or monitoring source
    to use. Reuse answers the administrator already gave. For a shared login method, ask once for the batch.
    Only collect the selected nodes through the approved access. Report missing or conflicting mappings.
-3. Use the matching scope. `node_access:write` registers verified SSH addresses and ports.
+3. Use the matching scope. `node_access:write` registers verified SSH addresses and ports, plus
+   the login method and any login note supplied by the administrator.
    `datasource:write` updates the metrics source and its mappings. Keep mappings for unselected nodes when
    updating an existing source. Changing a shared endpoint affects the whole bot, so confirm that change explicitly.
    `node_inventory:write` uploads observed hardware without changing SSH addresses, notes or metrics settings.
@@ -18,6 +19,28 @@ Read the Key from a private secret or file. Keep it out of commands, URLs, logs 
 5. Register hardware once and collect it again when the machine changes. Keep the approved node-to-source
    mapping in private configuration. LockBot records the observation time and retains the registered hardware
    until it receives a newer observation for that node.
+
+## Login information payload
+
+```json
+{
+  "scope": "node_access:write",
+  "configuration": {
+    "version": 2,
+    "nodes": {
+      "node-01": {
+        "host": "compute-01.example.test",
+        "port": 22,
+        "method": "SSH via the cluster bastion",
+        "note": "Use the assigned cluster account"
+      }
+    }
+  }
+}
+```
+
+Use plain text for the method and note. Keep passwords, tokens and private keys in the approved
+secret store. Omit either optional field to retain its current value, or set it to null to clear it.
 
 ## Hardware inventory payload
 

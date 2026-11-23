@@ -10,6 +10,7 @@ from fastapi import HTTPException, Request
 SINGLE_ADDRESS_VERSION = 1
 DUAL_ADDRESS_VERSION = 2
 _MAX_IMPORT_BYTES = 256 * 1024
+_LOGIN_TEXT_LIMITS = {"method": 120, "note": 256}
 _HOST_LABEL = re.compile(r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?")
 
 
@@ -61,7 +62,7 @@ def parse_access_mapping(raw, allowed_nodes=None):
     nodes = {}
     fields = {"host", "port"}
     if data["version"] == DUAL_ADDRESS_VERSION:
-        fields.add("ip")
+        fields.update(("ip", *_LOGIN_TEXT_LIMITS))
     for node, entry in data["nodes"].items():
         if not node or len(node) > 256 or (allowed_nodes is not None and node not in allowed_nodes):
             raise ValueError(f"Unknown node ID: {node[:256]!r}")
@@ -85,6 +86,15 @@ def parse_access_mapping(raw, allowed_nodes=None):
                 access["ip"] = str(ipaddress.IPv4Address(ip))
             except ipaddress.AddressValueError:
                 raise ValueError(f"Invalid IPv4 address for node {node!r}") from None
+        for field, limit in _LOGIN_TEXT_LIMITS.items():
+            if field not in entry:
+                continue
+            value = entry[field]
+            if value is not None:
+                if not isinstance(value, str) or len(value) > limit or not value.isprintable() or not value.strip():
+                    raise ValueError(f"Invalid login {field} for node {node!r}")
+                value = value.strip()
+            access[field] = value
         nodes[node] = access
     return nodes
 
@@ -119,8 +129,24 @@ def serialize_node_access(nodes):
     return json.dumps({"version": mapping_version(nodes), "nodes": nodes}, ensure_ascii=False) if nodes else None
 
 
+def merge_login_metadata(current, updates):
+    """Keep optional guidance on address-only edits. An explicit null clears it."""
+    nodes = {}
+    for node, update in updates.items():
+        previous = current.get(node, {})
+        metadata = {field: update.get(field, previous.get(field)) for field in _LOGIN_TEXT_LIMITS}
+        address = {field: value for field, value in update.items() if field not in _LOGIN_TEXT_LIMITS}
+        nodes[node] = {**address, **{field: value for field, value in metadata.items() if value is not None}}
+    return nodes
+
+
 def mapping_version(nodes):
-    return DUAL_ADDRESS_VERSION if any("ip" in access for access in nodes.values()) else SINGLE_ADDRESS_VERSION
+    extended_fields = {"ip", *_LOGIN_TEXT_LIMITS}
+    return (
+        DUAL_ADDRESS_VERSION
+        if any(extended_fields & access.keys() for access in nodes.values())
+        else SINGLE_ADDRESS_VERSION
+    )
 
 
 def _active_holding(resource, subject, now):

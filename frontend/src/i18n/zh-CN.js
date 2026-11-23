@@ -10,6 +10,8 @@ export default {
     notCollected: '未登记',
     scope: { host: '宿主机', container: '容器', unknown: '范围未知' },
     manualImport: '手动批量登记',
+    exampleLoginMethod: '通过集群跳板机 SSH 登录',
+    exampleLoginNote: '使用分配的集群账号',
     title: '节点信息',
     open: '配置节点信息',
     help: '查看节点硬件和登录信息，或让 Agent 登记。',

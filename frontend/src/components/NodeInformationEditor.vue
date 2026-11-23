@@ -8,15 +8,18 @@
   >
     <router-link
       class="collector-link"
-      :to="{ name: 'ApiCredentials', query: { bot: String(botId), scope: 'node_inventory:write' } }"
+      :to="{
+        name: 'ApiCredentials',
+        query: { bot: String(botId), scope: 'node_inventory:write,node_access:write' },
+      }"
     >
       {{ t('nodeInformation.configureCollector') }}
     </router-link>
-    <NodeInventorySummary v-if="visible" :bot-id="botId" />
+    <NodeInventorySummary v-if="visible" :key="revision" :bot-id="botId" />
     <NodeMetadataEditor
       :bot-id="botId"
       :can-edit-hardware="canEditHardware"
-      @changed="emit('changed')"
+      @changed="refreshInventory"
       @close="visible = false"
     />
   </el-dialog>
@@ -32,6 +35,12 @@ defineProps({ botId: { type: Number, required: true }, canEditHardware: Boolean 
 const emit = defineEmits(['changed'])
 const { t } = useI18n()
 const visible = ref(false)
+const revision = ref(0)
+
+function refreshInventory() {
+  revision.value++
+  emit('changed')
+}
 
 function open() {
   visible.value = true

@@ -26,6 +26,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import (
     _unique_object,
     mapping_version,
+    merge_login_metadata,
     node_ids,
     parse_access_mapping,
     saved_node_access,
@@ -458,7 +459,7 @@ def _proposed(bot, change, current):
     if removed.intersection(updates) or not removed <= set(inventory["node_ids"]):
         _deny(422, "configuration_resource_unknown")
     nodes = {node: entry for node, entry in current["nodes"].items() if node not in removed}
-    nodes.update(updates)
+    nodes.update(merge_login_metadata(nodes, updates))
     return {"version": mapping_version(nodes), "nodes": nodes}
 
 
@@ -522,6 +523,7 @@ def _manual_node_changes(bot, document):
     except (ValueError, TypeError, RecursionError):
         _deny(422, "invalid_node_metadata_mapping")
     current_login, current_hardware = saved_node_access(bot), saved_node_hardware(bot)
+    parsed_login = merge_login_metadata(current_login, parsed_login)
     changes = {}
     for node in nodes:
         before, after = {}, {}

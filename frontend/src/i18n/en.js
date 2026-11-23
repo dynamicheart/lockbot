@@ -10,6 +10,8 @@ export default {
     notCollected: 'Not registered',
     scope: { host: 'Host', container: 'Container', unknown: 'Unknown scope' },
     manualImport: 'Manual bulk registration',
+    exampleLoginMethod: 'SSH via the cluster bastion',
+    exampleLoginNote: 'Use the assigned cluster account',
     title: 'Node information',
     open: 'Configure node information',
     help: 'View node hardware and login details, or register them with an agent.',

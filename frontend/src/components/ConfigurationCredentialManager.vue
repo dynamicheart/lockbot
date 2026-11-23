@@ -415,11 +415,17 @@ function openAction(type, row) {
 watch(
   () => [loaded.value, props.requestedBot, props.requestedScope],
   ([ready, bot, permission]) => {
-    if (!ready || !/^\d+$/.test(bot) || !Object.hasOwn(scopeLabels, permission)) return
+    const permissions = [...new Set(permission.split(','))]
+    if (
+      !ready ||
+      !/^\d+$/.test(bot) ||
+      !permissions.every((item) => Object.hasOwn(scopeLabels, item))
+    )
+      return
     if (botsById.value.has(Number(bot))) {
       openCreate()
       form.value.bot_ids = [Number(bot)]
-      form.value.scopes = [permission]
+      form.value.scopes = permissions
     }
     emit('prefill-consumed')
   }

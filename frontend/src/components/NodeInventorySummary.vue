@@ -17,7 +17,9 @@
     </el-table-column>
     <el-table-column :label="t('nodeAccess.loginAddress')" min-width="125">
       <template #default="{ row }">
-        {{ row.access ? formatNodeAccess(row.access) : '—' }}
+        <div>{{ row.access ? formatNodeAccess(row.access) : '—' }}</div>
+        <div v-if="row.access?.method">{{ row.access.method }}</div>
+        <div v-if="row.access?.note">{{ row.access.note }}</div>
       </template>
     </el-table-column>
     <el-table-column :label="t('nodeInformation.collected')" min-width="144">

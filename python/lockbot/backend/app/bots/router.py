@@ -34,6 +34,7 @@ from lockbot.backend.app.bots.migration_preflight import MigrationPreflight, Mig
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import (
     mapping_version,
+    merge_login_metadata,
     node_ids,
     read_access_mapping,
     saved_node_access,
@@ -1996,6 +1997,7 @@ def _node_access_preview(document: dict, nodes: dict) -> dict:
     if invalid:
         raise HTTPException(422, f"Unknown node IDs: {', '.join(repr(node) for node in invalid[:10])}")
     current = document["nodes"]
+    nodes = merge_login_metadata(current, nodes)
     return {
         "version": mapping_version(nodes),
         "nodes": nodes,
@@ -2121,7 +2123,7 @@ def save_node_access(
         document = _node_access_document(bot)
         preview = _node_access_preview(document, nodes)
         if preview["added"] or preview["changed"]:
-            document["nodes"].update(nodes)
+            document["nodes"].update(preview["nodes"])
             document["version"] = mapping_version(document["nodes"])
             bot.node_access_config = serialize_node_access(document["nodes"])
             write_audit_log(
