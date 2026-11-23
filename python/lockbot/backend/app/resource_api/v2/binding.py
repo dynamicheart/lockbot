@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func, or_, select
 from sqlalchemy.orm import Mapped, Session, load_only, mapped_column
 
+from lockbot.backend.app import config
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import Base, get_db
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
@@ -350,7 +351,7 @@ def grant_summary(grant: PersonalGrant, bot: Bot, principal: PersonalCredential)
 
 
 @router.post("/bindings", status_code=201)
-@limiter.limit("10/hour")
+@limiter.limit(config.RESOURCE_AUTH_V2_BIND_START_RATE)
 def start_binding(
     request: Request,
     response: Response,

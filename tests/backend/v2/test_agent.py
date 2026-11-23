@@ -17,6 +17,9 @@ def test_openapi_versions_and_query_protection(client):
     assert v2["info"]["title"] == "LockBot Agent API v2"
     paths = v2["paths"]
     assert all(path.startswith(API + "/") for path in paths)
+    binding_rate = paths[API + "/bindings"]["post"]["x-lockbot-rate-limit"]
+    assert binding_rate["route_per_ip"] == "60/hour"
+    assert binding_rate["outstanding_confirmations_per_ip"] == config.RESOURCE_AUTH_V2_MAX_PENDING_PER_SOURCE
     command_rate = paths[API + "/commands"]["post"]["x-lockbot-rate-limit"]
     assert command_rate["shared_credential_budget"]["per_minute"] == config.RESOURCE_API_WRITE_BUDGET_PER_MINUTE
     read_rate = paths[API + "/resources"]["get"]["x-lockbot-rate-limit"]
@@ -188,6 +191,25 @@ def finish(client, challenge, *, proof=None):
     return client.post(
         API + f"/bindings/{challenge['binding_id']}/complete", json={"proof": proof or challenge["proof"]}
     )
+
+
+def test_v2_binding_source_capacity_releases_confirmed_slot(client, auth_header, session_factory, monkeypatch):
+    from lockbot.backend.app import config
+
+    monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
+    bot_id = make_bot(client, auth_header, "shared-source")
+    outstanding = [issue(client) for _ in range(config.RESOURCE_AUTH_V2_MAX_PENDING_PER_SOURCE)]
+    over_capacity = client.post(API + "/bindings", json={})
+    assert over_capacity.status_code == 429
+    assert over_capacity.json()["detail"]["code"] == "too_many_pending_bindings"
+    assert over_capacity.headers["Retry-After"] == "600"
+
+    first = outstanding[0]
+    chat(bot_id, first)
+    issue(client)
+    completion = finish(client, first).raise_for_status().json()
+    assert completion["status"] == "confirmed"
+    assert finish(client, first).json() == completion
 
 
 @pytest.mark.parametrize("external_enabled", [False, True])

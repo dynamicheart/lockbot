@@ -26,7 +26,7 @@ _V1 = {
 _V2 = {
     ("get", "/manifest"): (None, None),
     ("get", "/skill/SKILL.md"): (None, None),
-    ("post", "/bindings"): ("10/hour", None),
+    ("post", "/bindings"): (config.RESOURCE_AUTH_V2_BIND_START_RATE, None),
     ("post", "/bindings/{binding_id}/complete"): ("60/minute", None),
     ("get", "/bindings"): ("120/minute", None),
     ("delete", "/bindings/{grant_ref}"): ("60/minute", None),
@@ -81,6 +81,8 @@ def describe_agent_rate(path, method, operation, *, lang="zh"):
     pending_routes = {"/bindings", "/api/resource-auth/bindings", "/api/resource-auth/credential-challenges"}
     if method == "post" and route in pending_routes:
         info["outstanding_confirmation_retry_seconds"] = 600
+    if is_v2 and (method, route) == ("post", "/bindings"):
+        info["outstanding_confirmations_per_ip"] = config.RESOURCE_AUTH_V2_MAX_PENDING_PER_SOURCE
     operation["x-lockbot-rate-limit"] = info
 
     english = lang == "en"
@@ -117,6 +119,13 @@ def describe_agent_rate(path, method, operation, *, lang="zh"):
             f" Minimum interval for active / waiting / discovery polls: {values}s."
             if english
             else f" 活跃／预约等待／发现资源的最短轮询间隔分别为 {values} 秒。"
+        )
+    if "outstanding_confirmations_per_ip" in info:
+        capacity = info["outstanding_confirmations_per_ip"]
+        summary += (
+            f" Up to {capacity} codes may await confirmation per source IP."
+            if english
+            else f" 每来源 IP 最多有 {capacity} 个绑定码同时等待群确认。"
         )
     if "outstanding_confirmation_retry_seconds" in info:
         summary += (

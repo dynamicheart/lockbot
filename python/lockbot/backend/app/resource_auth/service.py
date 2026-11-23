@@ -123,6 +123,11 @@ def create_binding(
         "personal_recover": "V2REC-",
         "personal_reset": "V2R-",
     }[purpose]
+    max_per_source = (
+        config.RESOURCE_AUTH_V2_MAX_PENDING_PER_SOURCE
+        if purpose.startswith("personal")
+        else RESOURCE_AUTH_MAX_PENDING_PER_SOURCE
+    )
     for _ in range(_MAX_ISSUE_ATTEMPTS):
         binding_id = credentials.generate_public_id()
         credential = credentials.generate_credential() if purpose == "bind" else "lbp_" + secrets.token_urlsafe(32)
@@ -140,7 +145,7 @@ def create_binding(
                 label=(label or None),
                 window_seconds=RESOURCE_AUTH_BIND_WINDOW_SECONDS,
                 max_total=RESOURCE_AUTH_MAX_PENDING_TOTAL,
-                max_per_source=RESOURCE_AUTH_MAX_PENDING_PER_SOURCE,
+                max_per_source=max_per_source,
             )
             break
         except PendingCollision:
