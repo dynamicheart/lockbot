@@ -124,6 +124,8 @@ def test_agent_v2_publishes_downloadable_skill(client, monkeypatch):
     assert "only after the user explicitly authorizes binding" in response.text
     assert "If more than one target matches, ask the user" in response.text
     assert "A label, node name, or bot name is not hardware evidence" in response.text
+    assert "Proceed only after a fresh, complete result confirms the target." in response.text
+    assert "If it cannot be confirmed, report the result as unknown and stop." in response.text
     assert "unexpected.example.test" not in response.text
     assert "`lb lock" in response.text and "`lb book" in response.text
     assert "/api/agent-skill" not in response.text
@@ -842,6 +844,10 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
         )
         assert claims["resources"] == {"source-23": ["card-b"]}
         assert 0 < claims["exp"] - claims["iat"] <= 300
+        renewed = client.get(metrics_url, headers=bob).raise_for_status().json()["access"]["token"]
+        renewed_claims = jwt.decode(renewed, signing_key.read_bytes(), algorithms=["HS256"], audience=endpoint)
+        assert renewed_claims["jti"] != claims["jti"]
+        assert renewed_claims["resources"] == claims["resources"]
         replay = command(alice, "lock", ref_a, ref_b, duration="30m", idem="once")
         assert replay.json() == locked.json()
         assert command(alice, "lock", ref_a, duration="1h", idem="once").status_code == 409
