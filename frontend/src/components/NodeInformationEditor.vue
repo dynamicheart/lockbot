@@ -3,25 +3,32 @@
   <el-dialog
     v-model="visible"
     destroy-on-close
-    :title="t('nodeInformation.title')"
+    :title="t(editing ? 'nodeInformation.manualImport' : 'nodeInformation.title')"
     width="min(680px, calc(100vw - 32px))"
   >
-    <router-link
-      class="collector-link"
-      :to="{
-        name: 'ApiCredentials',
-        query: { bot: String(botId), scope: 'node_inventory:write,node_access:write' },
-      }"
-    >
-      {{ t('nodeInformation.configureCollector') }}
-    </router-link>
-    <NodeInventorySummary v-if="visible" :key="revision" :bot-id="botId" />
     <NodeMetadataEditor
+      v-if="editing"
       :bot-id="botId"
       :can-edit-hardware="canEditHardware"
-      @changed="refreshInventory"
-      @close="visible = false"
+      @changed="emit('changed')"
+      @close="editing = false"
     />
+    <NodeInventorySummary v-else-if="visible" :bot-id="botId" />
+    <template v-if="!editing" #footer>
+      <el-button @click="editing = true">{{ t('nodeInformation.manualImport') }}</el-button>
+      <router-link
+        v-slot="{ href, navigate }"
+        custom
+        :to="{
+          name: 'ApiCredentials',
+          query: { bot: String(botId), scope: 'node_inventory:write,node_access:write' },
+        }"
+      >
+        <el-button tag="a" type="primary" :href="href" @click="navigate">
+          {{ t('nodeInformation.configureCollector') }}
+        </el-button>
+      </router-link>
+    </template>
   </el-dialog>
 </template>
 
@@ -35,21 +42,10 @@ defineProps({ botId: { type: Number, required: true }, canEditHardware: Boolean 
 const emit = defineEmits(['changed'])
 const { t } = useI18n()
 const visible = ref(false)
-const revision = ref(0)
-
-function refreshInventory() {
-  revision.value++
-  emit('changed')
-}
+const editing = ref(false)
 
 function open() {
+  editing.value = false
   visible.value = true
 }
 </script>
-
-<style scoped>
-.collector-link {
-  display: inline-block;
-  margin-bottom: 10px;
-}
-</style>

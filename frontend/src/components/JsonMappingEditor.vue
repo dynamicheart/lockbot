@@ -1,7 +1,7 @@
 <template>
   <div class="json-mapping-editor" :style="{ '--json-editor-rows': rows }">
     <div ref="host" />
-    <small :id="hintId">{{ $t('jsonEditor.tabHint') }}</small>
+    <small v-if="example" :id="hintId">{{ $t('jsonEditor.tabHint') }}</small>
   </div>
 </template>
 
@@ -15,7 +15,7 @@ import { json } from '@codemirror/lang-json'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
-  example: { type: String, required: true },
+  example: { type: String, default: '' },
   label: { type: String, required: true },
   rows: { type: Number, default: 4 },
   disabled: Boolean,
@@ -33,7 +33,7 @@ const editing = () => [
 
 function insertExample(editor) {
   const { doc, readOnly } = editor.state
-  if (readOnly || doc.toString().trim()) return false
+  if (!props.example || readOnly || doc.toString().trim()) return false
   editor.dispatch({
     changes: { from: 0, to: doc.length, insert: props.example },
     selection: EditorSelection.cursor(0),
@@ -56,7 +56,7 @@ onMounted(() => {
       EditorState.changeFilter.of((transaction) => transaction.newDoc.length <= 131072),
       EditorView.contentAttributes.of({
         'aria-label': props.label,
-        'aria-describedby': hintId,
+        ...(props.example ? { 'aria-describedby': hintId } : {}),
         spellcheck: 'false',
       }),
       keymap.of([

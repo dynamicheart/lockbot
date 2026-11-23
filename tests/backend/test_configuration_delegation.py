@@ -87,12 +87,13 @@ def test_manual_node_json_saves_login_and_hardware_together(client, auth_header,
     path = f"/api/bots/{target}/node-inventory"
     login = {
         "host": "node-01.example.test",
+        "ip": "192.0.2.41",
         "port": 22,
         "method": "SSH via bastion",
         "note": "Use the assigned account",
     }
     hardware = [{"model": "Example Device", "count": 4}]
-    mapping = {"version": 1, "nodes": {"node1": {"login": login, "hardware": hardware}}}
+    mapping = {"version": 1, "nodes": {"node1": login | {"hardware": hardware}}}
 
     expected = {
         "changes": {
@@ -106,6 +107,8 @@ def test_manual_node_json_saves_login_and_hardware_together(client, auth_header,
     assert client.patch(path, headers=admin_header, json=mapping).status_code == 403
     invalid = {"version": 1, "nodes": {"node1": {"login": login, "hardware": [{"model": "bad", "count": 0}]}}}
     assert client.patch(path, headers=auth_header, json=invalid).status_code == 422
+    mixed = {"version": 1, "nodes": {"node1": login | {"login": login}}}
+    assert client.patch(path, headers=auth_header, json=mixed).status_code == 422
     assert client.get(path, headers=auth_header).raise_for_status().json()["login_addresses"] == {}
     assert client.patch(path, headers=auth_header, json=mapping).raise_for_status().json() == {"changed_nodes": 1}
     document = client.get(path, headers=auth_header).raise_for_status().json()
@@ -116,14 +119,17 @@ def test_manual_node_json_saves_login_and_hardware_together(client, auth_header,
     address = {"host": "node-01.example.test", "port": 2222}
     login_path = f"/api/bots/{target}/node-access"
     client.put(login_path, headers=auth_header, json={"version": 1, "nodes": {"node1": address}}).raise_for_status()
-    assert client.get(login_path, headers=auth_header).json()["nodes"]["node1"] == login | address
+    assert client.get(login_path, headers=auth_header).json()["nodes"]["node1"] == address | {
+        "method": login["method"],
+        "note": login["note"],
+    }
 
     # Clearing a note is explicit, and the remaining guidance is still preserved.
     clear_note = {"version": 1, "nodes": {"node1": {"login": address | {"note": None}}}}
     client.patch(path, headers=auth_header, json=clear_note).raise_for_status()
     assert client.get(login_path, headers=auth_header).json()["nodes"]["node1"] == address | {"method": login["method"]}
 
-    removal = {"version": 1, "nodes": {"node1": {"login": None}}}
+    removal = {"version": 1, "nodes": {"node1": {"host": None}}}
     client.patch(path, headers=auth_header, json=removal).raise_for_status()
     document = client.get(path, headers=auth_header).raise_for_status().json()
     assert document["login_addresses"] == {}

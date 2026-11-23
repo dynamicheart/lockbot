@@ -1,32 +1,25 @@
 <template>
-  <details class="node-import">
-    <summary>{{ t('nodeInformation.manualImport') }}</summary>
-    <div class="import-toolbar">
-      <el-button text size="small" @click="showExample = !showExample">
-        {{ t(showExample ? 'nodeInformation.hideExample' : 'nodeInformation.showExample') }}
-      </el-button>
-      <el-button
-        text
-        size="small"
-        :disabled="Boolean(input.trim()) || busy"
-        @click="input = example"
-      >
-        {{ t('nodeInformation.insertExample') }}
-      </el-button>
-    </div>
-    <pre v-if="showExample" class="json-example">{{ example }}</pre>
-    <JsonMappingEditor
-      v-model="input"
-      :label="t('nodeInformation.mapping')"
-      :example="example"
-      :disabled="busy"
-      @update:model-value="resetPreview"
-    />
+  <div>
+    <template v-if="!changes">
+      <div class="import-toolbar">
+        <span>{{ t('nodeInformation.importHint') }}</span>
+        <el-button size="small" :disabled="Boolean(input.trim()) || busy" @click="input = example">
+          {{ t('nodeInformation.insertExample') }}
+        </el-button>
+      </div>
+      <JsonMappingEditor
+        v-model="input"
+        :label="t('nodeInformation.mapping')"
+        :rows="8"
+        :disabled="busy"
+        @update:model-value="error = ''"
+      />
+    </template>
     <p v-if="error" role="alert">{{ t(error) }}</p>
     <p v-if="changes && !Object.keys(changes).length" role="status">
       {{ t('nodeAccess.noChanges') }}
     </p>
-    <section v-else-if="changes" aria-live="polite">
+    <section v-else-if="changes" class="import-review" aria-live="polite">
       <p>{{ t('nodeAccess.review') }}</p>
       <ul>
         <li v-for="(change, node) in changes" :key="node">
@@ -43,7 +36,10 @@
       </ul>
     </section>
     <div class="import-actions">
-      <el-button :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</el-button>
+      <el-button v-if="changes" :disabled="busy" @click="resetPreview">
+        {{ t('nodeInformation.backToEdit') }}
+      </el-button>
+      <el-button v-else :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</el-button>
       <el-button
         v-if="!changes"
         type="primary"
@@ -51,7 +47,7 @@
         :disabled="!input.trim()"
         @click="validate"
       >
-        {{ t('nodeAccess.validate') }}
+        {{ t('nodeInformation.previewChanges') }}
       </el-button>
       <el-button
         v-else
@@ -60,14 +56,14 @@
         :disabled="!Object.keys(changes).length"
         @click="save"
       >
-        {{ t('nodeAccess.save') }}
+        {{ t('common.save') }}
       </el-button>
     </div>
-  </details>
+  </div>
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
@@ -78,19 +74,19 @@ const props = defineProps({ botId: { type: Number, required: true }, canEditHard
 const emit = defineEmits(['changed', 'close'])
 const { t } = useI18n()
 const input = ref('')
-const showExample = ref(false)
 const busy = ref(false)
 const error = ref('')
 const changes = ref(null)
+const controller = new AbortController()
+onBeforeUnmount(() => controller.abort())
 const path = computed(() => `/bots/${props.botId}/node-inventory`)
 const example = computed(() => {
   const node = {
-    login: {
-      host: 'node-01.example.test',
-      port: 22,
-      method: t('nodeInformation.exampleLoginMethod'),
-      note: t('nodeInformation.exampleLoginNote'),
-    },
+    host: 'node-01.example.test',
+    ip: '192.0.2.41',
+    port: 22,
+    method: t('nodeInformation.exampleLoginMethod'),
+    note: t('nodeInformation.exampleLoginNote'),
   }
   if (props.canEditHardware) node.hardware = [{ model: 'P900', count: 4 }]
   return JSON.stringify({ version: 1, nodes: { 'node-01': node } }, null, 2)
@@ -123,6 +119,7 @@ async function submit(saveChanges) {
   busy.value = true
   const options = {
     _silent: true,
+    signal: controller.signal,
     headers: { 'Content-Type': 'application/json' },
     transformRequest: [(value) => value],
   }
@@ -137,7 +134,9 @@ async function submit(saveChanges) {
       changes.value = data.changes
     }
   } catch {
-    error.value = saveChanges ? 'nodeAccess.writeFailed' : 'nodeInformation.validationFailed'
+    if (!controller.signal.aborted) {
+      error.value = saveChanges ? 'nodeAccess.writeFailed' : 'nodeInformation.validationFailed'
+    }
   } finally {
     busy.value = false
   }
@@ -148,22 +147,18 @@ const save = () => submit(true)
 </script>
 
 <style scoped>
-.node-import {
-  margin-top: 16px;
-}
-
-.node-import > summary {
-  cursor: pointer;
-}
-
 .import-toolbar {
-  margin: 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
-.json-example {
-  background: var(--el-fill-color-light);
-  padding: 10px;
-  overflow-x: auto;
+.import-review {
+  max-height: 290px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
 }
 
 .import-actions {

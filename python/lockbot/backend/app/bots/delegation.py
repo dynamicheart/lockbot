@@ -508,9 +508,22 @@ def get_node_inventory(
 def _manual_node_changes(bot, document):
     nodes = document.nodes
     ids = set(_inventory(bot)["node_ids"])
-    if set(nodes) - ids or any(not entry or entry.keys() - {"login", "hardware"} for entry in nodes.values()):
+    address_fields = {"host", "ip", "port", "method", "note"}
+    if set(nodes) - ids:
         _deny(422, "invalid_node_metadata_mapping")
-    login = {node: entry["login"] for node, entry in nodes.items() if "login" in entry}
+    login = {}
+    for node, entry in nodes.items():
+        flat_login = entry.keys() & address_fields
+        if not entry or entry.keys() - address_fields - {"login", "hardware"} or ("login" in entry and flat_login):
+            _deny(422, "invalid_node_metadata_mapping")
+        if "login" in entry:
+            login[node] = entry["login"]
+        elif flat_login:
+            login[node] = (
+                None
+                if flat_login == {"host"} and entry["host"] is None
+                else {field: entry[field] for field in flat_login}
+            )
     hardware = {node: entry["hardware"] for node, entry in nodes.items() if "hardware" in entry}
     if hardware and bot.bot_type not in WHOLE_MACHINE_TYPES:
         _deny(422, "node_hardware_requires_whole_machine")
