@@ -166,7 +166,7 @@ curl -fsS -N "$LOCKBOT_URL/api/agent/v2/resources/events?mine=true" \\
     ("get", "/resources/{resource_ref}/details"): """
 通过 `GET /api/agent/v2/resources` 取得精确资源引用。个人 v2 Key 必须有目标机器人的授权。
 整机有采集记录时，`inventory` 返回硬件盘点及已登记的驱动、逐卡固件和 SBL。
-当前持有者可以读取 `ssh_address`。未持有时 `ssh_status` 为 `requires_hold`。
+同一授权可查看该资源已登记的 `ssh_address`，无需先锁定。地址还未登记时 `ssh_status` 为 `unregistered`。
 本接口只读取信息。
 
 ```sh
@@ -349,10 +349,10 @@ _JSON_RESPONSES = {
     ),
     ("get", "/resources/{resource_ref}/details"): (
         "200",
-        "已登记的采集详情，当前持有者可查看 SSH 地址。",
+        "已登记的采集详情和 SSH 地址。",
         {
-            "held_node": (
-                "本人持有的整机",
+            "node": (
+                "已授权的整机",
                 {
                     "resource_ref": _RESOURCE,
                     "node": "node-23",
@@ -424,7 +424,7 @@ _ERRORS = {
         "503": "metrics_access_unavailable。数据源当前无法签发只读凭证。",
     },
     ("get", "/resources/{resource_ref}/details"): {
-        "404": "resource_unavailable。核对精确资源引用、机器人运行状态和群授权。",
+        "404": "resource_unavailable。核对精确资源引用和群授权。",
     },
 }
 

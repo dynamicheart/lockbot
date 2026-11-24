@@ -288,7 +288,7 @@ def test_host_inventory_reaches_agent_reads_and_shared_view(
         manager.stop_bot(bot_id)
 
 
-def test_resource_details_exposes_ssh_only_during_own_holding(
+def test_resource_details_exposes_ssh_to_the_bound_group_before_and_after_lock(
     client, auth_header, session_factory, monkeypatch, tmp_path
 ):
     from datetime import datetime, timezone
@@ -297,7 +297,7 @@ def test_resource_details_exposes_ssh_only_during_own_holding(
 
     monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
     manager = BotManager(max_inflight=5, drain_timeout=2)
-    for module in ("v2.resources", "v2.details", "v2.commands"):
+    for module in ("v2.resources", "v2.commands"):
         monkeypatch.setattr(f"lockbot.backend.app.resource_api.{module}.bot_manager", manager)
     bot_id = make_bot(client, auth_header, "Example inventory")
     manager.start_bot(
@@ -354,10 +354,15 @@ def test_resource_details_exposes_ssh_only_during_own_holding(
         ref = row["resource_ref"]
         url = API + f"/resources/{ref}/details"
         assert client.get(url, headers=bearer(key)).status_code == 401
+        unrelated_bot = make_bot(client, auth_header, "Other inventory")
+        unrelated_challenge = issue(client)
+        chat(unrelated_bot, unrelated_challenge, sender="outsider")
+        unrelated = bearer(finish(client, unrelated_challenge).raise_for_status().json()["credential"])
+        assert client.get(url, headers=unrelated).status_code == 404
         before = client.get(url, headers=owner).raise_for_status()
         assert before.headers["cache-control"] == "no-store"
         assert before.json()["inventory"]["software"] == software
-        assert "ssh_address" not in before.json() and before.json()["ssh_status"] == "requires_hold"
+        assert before.json()["ssh_address"] == login and before.json()["ssh_status"] == "available"
 
         client.post(
             API + "/commands",
@@ -369,7 +374,7 @@ def test_resource_details_exposes_ssh_only_during_own_holding(
             },
         ).raise_for_status()
         assert client.get(url, headers=owner).raise_for_status().json()["ssh_address"] == login
-        assert "ssh_address" not in client.get(url, headers=member).raise_for_status().json()
+        assert client.get(url, headers=member).raise_for_status().json()["ssh_address"] == login
         client.post(
             API + "/commands",
             headers=owner,
@@ -378,7 +383,7 @@ def test_resource_details_exposes_ssh_only_during_own_holding(
                 "resource_refs": [ref],
             },
         ).raise_for_status()
-        assert "ssh_address" not in client.get(url, headers=owner).raise_for_status().json()
+        assert client.get(url, headers=owner).raise_for_status().json()["ssh_address"] == login
     finally:
         manager.stop_bot(bot_id)
 
