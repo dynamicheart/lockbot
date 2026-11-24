@@ -381,6 +381,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import { setLocale, getLocale } from '../i18n'
 import DemoChat from '../components/DemoChat.vue'
+import { personalPanelWebDisabled } from '../utils/personalPanelWeb'
 import { LS_KEYS } from '../utils/demoMode'
 import { isDemoMode } from '../utils/demoMode'
 
@@ -389,9 +390,9 @@ onMounted(async () => {
   try {
     const response = await fetch('/api/settings')
     const settings = await response.json()
-    personalPanelEnabled.value = settings.some(
-      (s) => s.key === 'personal_panel_url' && s.value === '/#/me'
-    )
+    personalPanelEnabled.value =
+      !personalPanelWebDisabled &&
+      settings.some((s) => s.key === 'personal_panel_url' && s.value === '/#/me')
   } catch {
     /* Optional feature. */
   }

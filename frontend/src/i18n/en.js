@@ -1051,6 +1051,8 @@ export default {
   },
 
   personalWorkbench: {
+    retired: 'Personal resource dashboard retired',
+    retiredDescription: 'Use the LockBot CLI to find, request, and manage resources.',
     title: 'Personal workbench',
     navigation: 'Primary navigation',
     myAllocations: 'My allocations',

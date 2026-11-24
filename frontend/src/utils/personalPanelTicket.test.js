@@ -1,6 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+})
 
 it('removes a personal handoff before router initialization and retains it only in memory', async () => {
   vi.resetModules()
@@ -80,4 +83,20 @@ it('routes one proof during in-app navigation and discards mixed or repeated pro
   expect(capturePersonalPanelTickets({ credential_view: 'view' })).toBe(true)
   expect(pendingCredentialViewTicket.value).toBe('view')
   expect(capturePersonalPanelTickets({ node: 'row' })).toBe(false)
+})
+
+it('clears a retired workbench link without storing or consuming its login or key proof', async () => {
+  vi.resetModules()
+  vi.stubEnv('VITE_PERSONAL_PANEL_WEB_DISABLED', 'true')
+  const replaceState = vi.fn()
+  vi.stubGlobal('window', {
+    location: { hash: '#/me?ticket=synthetic-ticket' },
+    history: { state: null, replaceState },
+  })
+  const { capturePersonalPanelTickets, pendingPanelTicket, pendingCredentialViewTicket } =
+    await import('./personalPanelTicket')
+  expect(replaceState).toHaveBeenCalledWith(null, '', '/#/me')
+  expect(pendingPanelTicket.value).toBe('')
+  expect(capturePersonalPanelTickets({ credential_view: 'synthetic-view-proof' })).toBe(true)
+  expect(pendingCredentialViewTicket.value).toBe('')
 })

@@ -1014,6 +1014,8 @@ export default {
   },
 
   personalWorkbench: {
+    retired: '个人资源台已下架',
+    retiredDescription: '请使用 LockBot CLI 查询、申请和管理资源。',
     title: '个人资源台',
     navigation: '主导航',
     myAllocations: '我的占用',
