@@ -126,6 +126,8 @@ curl -fsS -X DELETE "$LOCKBOT_URL/api/agent/v2/bindings/$GRANT_REF" \\
 例如 `status: idle` 的资源可能已留给队首，此时 `available` 为 false。
 `holding` 和 `booking` 仅表示调用者本人的占用与预约。
 `fields` 可指定逗号分隔的返回字段，`resource_ref` 始终返回。
+`include_ssh=true` 用于按节点名或精确资源引用查看。查询完整且只匹配一个已授权节点时，
+首行可以包含该节点已登记的 `ssh_address`。
 
 ```sh
 curl -fsS "$LOCKBOT_URL/api/agent/v2/resources?model=p800&unit=card&available=true&limit=20" \\

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from lockbot.backend.app.bots.datasource import agent_metrics_source
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring, bot_manager
 from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.bots.node_access import resource_ssh_address
 from lockbot.backend.app.bots.node_inventory import resource_node_hardware
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.resource_api import errors
@@ -403,6 +404,9 @@ def list_resources(
     cursor: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
     fields: Annotated[str | None, Query(min_length=1, max_length=256)] = None,
     include_people: Annotated[bool, Query(description="Include display names of holders and queued users.")] = False,
+    include_ssh: Annotated[
+        bool, Query(description="Include the SSH address when the query resolves to one node.")
+    ] = False,
 ):
     """Search native resources within the groups the caller has confirmed."""
     response.headers["Cache-Control"] = "no-store"
@@ -424,6 +428,7 @@ def list_resources(
         cursor=cursor,
         fields=fields,
         include_people=include_people,
+        include_ssh=include_ssh,
     )
 
 
@@ -450,6 +455,7 @@ def query_resource_page(
     cursor=None,
     fields=None,
     include_people=False,
+    include_ssh=False,
     charge_budget=True,
     allow_empty_match=False,
 ):
@@ -485,7 +491,10 @@ def query_resource_page(
         if parent_ref:
             node = exact.node
     needs_hardware = selected is None or "hardware" in selected or model is not None
-    groups = active_resource_grants(db, principal, grant_ref=grant_ref, bot_id=bot_id, inventory=needs_hardware)
+    include_ssh = include_ssh and selected is None and view == "list" and (node is not None or resource_ref is not None)
+    groups = active_resource_grants(
+        db, principal, grant_ref=grant_ref, bot_id=bot_id, inventory=needs_hardware, ssh=include_ssh
+    )
     if not groups and (resource_ref or parent_ref):
         raise api_error("resource_unavailable", 404)
     if resource_ref:
@@ -600,6 +609,11 @@ def query_resource_page(
         if offset is None:
             raise api_error("stale_cursor", 409)
         rows = rows[offset:]
+    if include_ssh and not unavailable and not cursor and len({(row["grant_ref"], row["node"]) for row in rows}) == 1:
+        first = rows[0]
+        bot = next(bot for grant, bot in groups if grant.public_id == first["grant_ref"])
+        if address := resource_ssh_address(bot, first["node"]):
+            first["ssh_address"] = address
     page, size = [], 0
     max_page_bytes = _MAX_PEOPLE_PAGE_BYTES if include_people else _MAX_PAGE_BYTES
     for row in rows[:limit]:

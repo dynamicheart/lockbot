@@ -6,7 +6,7 @@ from fastapi import Depends, Path, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from lockbot.backend.app.bots.node_access import saved_node_access
+from lockbot.backend.app.bots.node_access import resource_ssh_address
 from lockbot.backend.app.bots.node_inventory import saved_node_observation
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
@@ -48,7 +48,7 @@ def resource_details(
         node, slot = target.node, target.slot
         if config_units(bot, node=node, slot=slot).get((node, slot)) != target.fingerprint:
             raise api_error("resource_unavailable", 404)
-        address = saved_node_access(bot).get(node)
+        address = resource_ssh_address(bot, node)
         result = {
             "resource_ref": resource_ref,
             "node": node,
@@ -59,5 +59,5 @@ def resource_details(
         if slot == NODE and (observation := saved_node_observation(bot, node)):
             result["inventory"] = observation.model_dump(mode="json", exclude_none=True)
         if address:
-            result["ssh_address"] = {key: address[key] for key in ("host", "ip", "port") if key in address}
+            result["ssh_address"] = address
         return result

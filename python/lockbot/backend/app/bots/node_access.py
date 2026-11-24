@@ -132,6 +132,12 @@ def saved_node_access(bot):
     return {node: access for node, access in saved.items() if node in allowed_nodes}
 
 
+def resource_ssh_address(bot, node):
+    """Project the connection fields exposed to a bot-authorized CLI."""
+    address = saved_node_access(bot).get(node)
+    return {key: address[key] for key in ("host", "ip", "port") if key in address} if address else None
+
+
 def serialize_node_access(nodes):
     return json.dumps({"version": mapping_version(nodes), "nodes": nodes}, ensure_ascii=False) if nodes else None
 

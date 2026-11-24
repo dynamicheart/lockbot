@@ -353,6 +353,14 @@ def test_resource_details_exposes_ssh_to_the_bound_group_before_and_after_lock(
         row = client.get(API + "/resources", headers=owner).raise_for_status().json()["rows"][0]
         ref = row["resource_ref"]
         url = API + f"/resources/{ref}/details"
+        assert "ssh_address" not in row
+        for filters in ({"node": "node-23"}, {"resource_ref": ref}):
+            lookup = client.get(
+                API + "/resources", headers=member, params={**filters, "include_ssh": True}
+            ).raise_for_status()
+            assert lookup.json()["rows"][0]["ssh_address"] == login
+        broad = client.get(API + "/resources", headers=owner, params={"include_ssh": True}).raise_for_status()
+        assert "ssh_address" not in broad.json()["rows"][0]
         assert client.get(url, headers=bearer(key)).status_code == 401
         unrelated_bot = make_bot(client, auth_header, "Other inventory")
         unrelated_challenge = issue(client)
