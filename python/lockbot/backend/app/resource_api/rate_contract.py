@@ -34,6 +34,7 @@ _V2 = {
     ("get", "/resources/events"): (None, "read"),
     ("post", "/commands"): ("60/minute", "write"),
     ("get", "/resources/{resource_ref}/metrics"): ("60/minute", "read"),
+    ("get", "/resources/{resource_ref}/details"): ("60/minute", "read"),
 }
 _V1_RESOURCE = re.compile(r"^/api/(?:agent|bots/\{bot_id\})(/.*)$")
 _V2_PREFIX = "/api/agent/v2"

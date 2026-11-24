@@ -288,6 +288,101 @@ def test_host_inventory_reaches_agent_reads_and_shared_view(
         manager.stop_bot(bot_id)
 
 
+def test_resource_details_exposes_ssh_only_during_own_holding(
+    client, auth_header, session_factory, monkeypatch, tmp_path
+):
+    from datetime import datetime, timezone
+
+    from lockbot.backend.app.bots.manager import BotManager
+
+    monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
+    manager = BotManager(max_inflight=5, drain_timeout=2)
+    for module in ("v2.resources", "v2.details", "v2.commands"):
+        monkeypatch.setattr(f"lockbot.backend.app.resource_api.{module}.bot_manager", manager)
+    bot_id = make_bot(client, auth_header, "Example inventory")
+    manager.start_bot(
+        bot_id,
+        {
+            "BOT_TYPE": "NODE",
+            "BOT_ID": bot_id,
+            "DATA_DIR": str(tmp_path / "bots"),
+            "CLUSTER_CONFIGS": {"node-23": "demo"},
+        },
+    )
+    try:
+        login = {"host": "node-23.example.test", "ip": "192.0.2.41", "port": 22}
+        client.put(
+            f"/api/bots/{bot_id}/node-access",
+            headers=auth_header,
+            json={"version": 2, "nodes": {"node-23": login | {"note": "owner-only example note"}}},
+        ).raise_for_status()
+        key = (
+            client.post(
+                "/api/configuration-credentials",
+                headers=auth_header,
+                json={
+                    "label": "inventory",
+                    "bot_ids": [bot_id],
+                    "scopes": ["node_inventory:write"],
+                },
+            )
+            .raise_for_status()
+            .json()["credential"]
+        )
+        path = f"/api/bots/{bot_id}/configuration-access"
+        software = {
+            "driver_version": "1.2.3",
+            "device_firmware": {"0": {"firmware_version": "4.5.6", "sbl_version": "7.8.9"}},
+        }
+        observed = {
+            "scope": "host",
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "accelerators": [{"model": "Example Device", "count": 4}],
+            "software": software,
+        }
+        payload = {"scope": "node_inventory:write", "configuration": {"version": 1, "nodes": {"node-23": observed}}}
+        plan = client.post(path + "/preview", headers=bearer(key), json=payload).raise_for_status().json()
+        client.put(path, headers=bearer(key), json={**payload, "receipt": plan["receipt"]}).raise_for_status()
+
+        def connect(sender):
+            challenge = issue(client)
+            chat(bot_id, challenge, sender=sender)
+            return bearer(finish(client, challenge).raise_for_status().json()["credential"])
+
+        owner, member = connect("alice"), connect("bob")
+        row = client.get(API + "/resources", headers=owner).raise_for_status().json()["rows"][0]
+        ref = row["resource_ref"]
+        url = API + f"/resources/{ref}/details"
+        assert client.get(url, headers=bearer(key)).status_code == 401
+        before = client.get(url, headers=owner).raise_for_status()
+        assert before.headers["cache-control"] == "no-store"
+        assert before.json()["inventory"]["software"] == software
+        assert "ssh_address" not in before.json() and before.json()["ssh_status"] == "requires_hold"
+
+        client.post(
+            API + "/commands",
+            headers=owner,
+            json={
+                "operation": "lock",
+                "resource_refs": [ref],
+                "duration": "30m",
+            },
+        ).raise_for_status()
+        assert client.get(url, headers=owner).raise_for_status().json()["ssh_address"] == login
+        assert "ssh_address" not in client.get(url, headers=member).raise_for_status().json()
+        client.post(
+            API + "/commands",
+            headers=owner,
+            json={
+                "operation": "free",
+                "resource_refs": [ref],
+            },
+        ).raise_for_status()
+        assert "ssh_address" not in client.get(url, headers=owner).raise_for_status().json()
+    finally:
+        manager.stop_bot(bot_id)
+
+
 def test_management_activity_identifies_v2_tokens_and_counts_recent_verified_access(
     client, auth_header, admin_header, db_session, session_factory, monkeypatch
 ):

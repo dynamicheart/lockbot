@@ -163,6 +163,17 @@ curl -fsS -N "$LOCKBOT_URL/api/agent/v2/resources/events?mine=true" \\
 
 在终端按 Ctrl+C 停止订阅。连接容量已满时，按 `Retry-After` 等待后重连。
 """,
+    ("get", "/resources/{resource_ref}/details"): """
+通过 `GET /api/agent/v2/resources` 取得精确资源引用。个人 v2 Key 必须有目标机器人的授权。
+整机有采集记录时，`inventory` 返回硬件盘点及已登记的驱动、逐卡固件和 SBL。
+当前持有者可以读取 `ssh_address`。未持有时 `ssh_status` 为 `requires_hold`。
+本接口只读取信息。
+
+```sh
+curl -fsS "$LOCKBOT_URL/api/agent/v2/resources/$RESOURCE_REF/details" \\
+  -H "Authorization: Bearer $KEY"
+```
+""",
     ("get", "/resources/{resource_ref}/metrics"): """
 通过 `GET /api/agent/v2/resources` 找到资源，查看该行的 `metrics` 是否为 `ready`。
 个人 v2 Key 需要有目标机器人的授权。资源可见即可查询，无需先锁定。
@@ -336,6 +347,32 @@ _JSON_RESPONSES = {
             ),
         },
     ),
+    ("get", "/resources/{resource_ref}/details"): (
+        "200",
+        "已登记的采集详情，当前持有者可查看 SSH 地址。",
+        {
+            "held_node": (
+                "本人持有的整机",
+                {
+                    "resource_ref": _RESOURCE,
+                    "node": "node-23",
+                    "source": "example-bot",
+                    "card": None,
+                    "ssh_status": "available",
+                    "ssh_address": {"host": "node-23.example.test", "ip": "192.0.2.41", "port": 22},
+                    "inventory": {
+                        "observed_at": "2026-01-01T00:00:00Z",
+                        "scope": "host",
+                        "accelerators": [{"model": "Example Device", "count": 4}],
+                        "software": {
+                            "driver_version": "1.2.3",
+                            "device_firmware": {"0": {"firmware_version": "4.5.6", "sbl_version": "7.8.9"}},
+                        },
+                    },
+                },
+            ),
+        },
+    ),
     ("get", "/resources/{resource_ref}/metrics"): (
         "200",
         "数据源位置和临时只读凭证。",
@@ -385,6 +422,9 @@ _ERRORS = {
     ("get", "/resources/{resource_ref}/metrics"): {
         "404": "resource_unavailable 或 metrics_not_configured。刷新资源列表并检查是否有数据源映射。",
         "503": "metrics_access_unavailable。数据源当前无法签发只读凭证。",
+    },
+    ("get", "/resources/{resource_ref}/details"): {
+        "404": "resource_unavailable。核对精确资源引用、机器人运行状态和群授权。",
     },
 }
 

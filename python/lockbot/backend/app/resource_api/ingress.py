@@ -30,7 +30,7 @@ _LEGACY_RESOURCE_LIST = re.compile(r"^/api/(?:agent|bots/[^/]+)/resources/?$")
 
 _PATH = re.compile(
     r"^/api/(?:agent/(?:bindings(?:/recover)?|context|commands|resources|usage-declarations(?:/[^/]+)?"
-    r"|v2/(?:commands|resources(?:/(?:events|[^/]+/metrics))?|bindings(?:/[^/]+(?:/complete)?)?))"
+    r"|v2/(?:commands|resources(?:/(?:events|[^/]+/(?:metrics|details)))?|bindings(?:/[^/]+(?:/complete)?)?))"
     r"|bot-views/[^/]+/state|resource-auth/(?:bindings|credential-challenges)(?:/[^/]+)?"
     r"|bots/[^/]+/(?:commands|resources|usage-declarations(?:/[^/]+)?))/?$"
 )

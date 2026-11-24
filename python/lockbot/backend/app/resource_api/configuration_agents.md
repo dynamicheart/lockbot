@@ -65,6 +65,9 @@ secret store. Omit either optional field to retain its current value, or set it 
 Use the collector observation time with a timezone. Set scope to `host`, `container` or `unknown`.
 Group cards by model and per-card memory. Omit unknown capacities or architecture rather than guessing.
 Upload only the documented fields. Use the private extension to handle hardware-specific private metadata.
+For a host observation, the optional `software` object accepts `driver_version` and `device_firmware`.
+In `device_firmware`, key each entry by the observed card number and include the available
+`firmware_version` and `sbl_version` strings.
 
 ## Upload an inventory file
 

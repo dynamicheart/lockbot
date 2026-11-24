@@ -10,6 +10,8 @@ from lockbot.backend.app.bots.node_hardware import WHOLE_MACHINE_TYPES, saved_no
 
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
 ByteCount = Annotated[int, Field(strict=True, gt=0, le=2**53 - 1)]
+VersionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
+DeviceIndex = Annotated[str, StringConstraints(pattern=r"^(0|[1-9][0-9]{0,3})$")]
 
 
 class AcceleratorInventory(BaseModel):
@@ -27,6 +29,34 @@ class AcceleratorInventory(BaseModel):
         return model
 
 
+class DeviceFirmware(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    firmware_version: VersionText | None = None
+    sbl_version: VersionText | None = None
+
+    @field_validator("firmware_version", "sbl_version")
+    @classmethod
+    def printable_version(cls, version):
+        if version is not None and not version.isprintable():
+            raise ValueError("Invalid firmware version")
+        return version
+
+
+class NodeSoftware(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    driver_version: VersionText | None = None
+    device_firmware: dict[DeviceIndex, DeviceFirmware] = Field(default_factory=dict, max_length=256)
+
+    @field_validator("driver_version")
+    @classmethod
+    def printable_driver(cls, version):
+        if version is not None and not version.isprintable():
+            raise ValueError("Invalid driver version")
+        return version
+
+
 class NodeInventory(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -35,6 +65,7 @@ class NodeInventory(BaseModel):
     accelerators: list[AcceleratorInventory] = Field(min_length=1, max_length=256)
     memory_bytes: ByteCount | None = None
     cpu_arch: ShortText | None = None
+    software: NodeSoftware | None = None
 
 
 class InventoryUpdates(BaseModel):
@@ -47,6 +78,14 @@ class InventoryUpdates(BaseModel):
 def inventory_document(bot, node_ids):
     nodes = json.loads(bot.node_inventory_config or "{}")
     return {"version": 1, "nodes": {node: nodes[node] for node in node_ids if node in nodes}}
+
+
+def saved_node_observation(bot, node):
+    try:
+        record = inventory_document(bot, [node])["nodes"].get(node)
+        return NodeInventory.model_validate(record) if record is not None else None
+    except (AttributeError, TypeError, ValueError):
+        return None
 
 
 def resource_node_hardware(bot):
@@ -90,5 +129,6 @@ def update_inventory(raw, previous, node_ids):
                 continue
             if saved.scope == "host" and observation.scope != "host":
                 continue
-        current[node] = observation.model_dump(mode="json")
+        fields = {"software"} if observation.software is None else set()
+        current[node] = observation.model_dump(mode="json", exclude=fields)
     return {"version": 1, "nodes": current}

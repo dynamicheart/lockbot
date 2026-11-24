@@ -44,7 +44,7 @@ def observation(entry, now):
     if not isinstance(aliases, dict) or any(not isinstance(name, str) or not name.strip() for name in aliases.values()):
         raise ValueError("Invalid accelerator model aliases")
     counts = Counter((aliases.get(card["model"], card["model"]), card.get("memory_total_bytes")) for card in devices)
-    return {
+    result = {
         "observed_at": stamp.isoformat(),
         "scope": saved["scope"],
         "accelerators": [
@@ -54,6 +54,19 @@ def observation(entry, now):
         "memory_bytes": saved.get("memory_total_bytes"),
         "cpu_arch": (saved.get("cpu") or {}).get("arch"),
     }
+    if software := saved.get("software"):
+        firmware = software.get("device_firmware", {})
+        result["software"] = {
+            "driver_version": software.get("driver_version"),
+            "device_firmware": {
+                index: {
+                    "firmware_version": versions.get("firmware_version"),
+                    "sbl_version": versions.get("sbl_version"),
+                }
+                for index, versions in firmware.items()
+            },
+        }
+    return result
 
 
 def upload(args):
