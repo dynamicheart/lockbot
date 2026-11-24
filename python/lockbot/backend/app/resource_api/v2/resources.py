@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from lockbot.backend.app.bots.datasource import agent_metrics_source
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring, bot_manager
 from lockbot.backend.app.bots.models import Bot
-from lockbot.backend.app.bots.node_hardware import saved_node_hardware
+from lockbot.backend.app.bots.node_inventory import resource_node_hardware
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.snapshot import QUEUE_CLAIM_WINDOW_SECONDS, build_resources
@@ -177,14 +177,13 @@ def booking_ref(resource_ref, principal_id, raw):
     return f"book_{resource_ref[4:]}_{hashlib.sha256(value.encode()).hexdigest()[:24]}"
 
 
-def project_rows(bot, grant, principal, commands, aliases, refs, observed, state):
+def project_rows(bot, grant, principal, commands, aliases, refs, observed, state, *, hardware):
     caller = principal.external_user_id
     supported = sorted(_SUPPORTED.intersection(commands))
     public_states = build_resources(
         captured_at=observed, state=state, bot_type=bot.bot_type, platform=principal.platform, caller_id=caller
     )
     devices = bot.bot_type in CARD_BOTS
-    hardware = {} if devices else saved_node_hardware(bot)
     metrics_source = agent_metrics_source(bot)
     mapped_nodes = metrics_source["nodeMapping"] if metrics_source else {}
     mapped_devices = metrics_source["deviceMapping"] if metrics_source else {}
@@ -259,7 +258,7 @@ def _cursor_hash(filters):
     return hashlib.sha256(json.dumps(filters, separators=(",", ":")).encode()).hexdigest()[:16]
 
 
-def _catalog_rows(bot, grant, principal, refs, configured):
+def _catalog_rows(bot, grant, principal, refs, configured, hardware):
     try:
         overrides = normalize_label_settings(json.loads(bot.config_overrides or "{}"))
         aliases = overrides.get("NODE_LABELS") or {}
@@ -267,7 +266,6 @@ def _catalog_rows(bot, grant, principal, refs, configured):
         aliases = {}
     if not isinstance(aliases, dict):
         aliases = {}
-    hardware = saved_node_hardware(bot)
     for (node, slot), ref in refs.items():
         if slot == NODE:
             models = hardware.get(node)
@@ -345,7 +343,7 @@ def _resource_state(state, node, slot):
     return {node: value}
 
 
-def _filter_state(bot, state, aliases, caller, *, unit, model, available, mine, node, device=None):
+def _filter_state(bot, state, aliases, caller, *, hardware, unit, model, available, mine, node, device=None):
     """Narrow raw state before building holder and queue projections."""
     cards = bot.bot_type in CARD_BOTS
     if unit != "any" and unit != ("card" if cards else "node"):
@@ -364,7 +362,6 @@ def _filter_state(bot, state, aliases, caller, *, unit, model, available, mine, 
             item.get("user_id") == caller for item in bookings
         )
 
-    hardware = saved_node_hardware(bot) if model is not None and not cards else {}
     result = {}
     for name, raw in state.items():
         if node is not None and name != node and aliases.get(name) != node:
@@ -487,7 +484,8 @@ def query_resource_page(
             target_slot = exact.slot
         if parent_ref:
             node = exact.node
-    groups = active_resource_grants(db, principal, grant_ref=grant_ref, bot_id=bot_id)
+    needs_hardware = selected is None or "hardware" in selected or model is not None
+    groups = active_resource_grants(db, principal, grant_ref=grant_ref, bot_id=bot_id, inventory=needs_hardware)
     if not groups and (resource_ref or parent_ref):
         raise api_error("resource_unavailable", 404)
     if resource_ref:
@@ -504,6 +502,7 @@ def query_resource_page(
         if device is not None and bot.bot_type not in CARD_BOTS:
             continue
         try:
+            hardware = resource_node_hardware(bot) if needs_hardware else {}
             if catalog_only:
                 configured = config_units(bot, node=target_node, slot=target_slot)
                 if node_prefix is not None:
@@ -513,7 +512,7 @@ def query_resource_page(
                 refs = _resource_refs(db, load_principal, principal, grant, bot, known.get(bot.id, {}), configured)
                 rows.extend(
                     row
-                    for row in _catalog_rows(bot, grant, principal, refs, configured)
+                    for row in _catalog_rows(bot, grant, principal, refs, configured, hardware)
                     if _matches(row, unit, model, None, False, node, resource_ref)
                 )
                 continue
@@ -537,6 +536,7 @@ def query_resource_page(
                 state,
                 aliases,
                 principal.external_user_id,
+                hardware=hardware,
                 unit=unit,
                 model=model,
                 available=available,
@@ -548,7 +548,9 @@ def query_resource_page(
                 continue
             configured = config_units(bot, node=target_node, slot=target_slot)
             refs = _resource_refs(db, load_principal, principal, grant, bot, known.get(bot.id, {}), configured)
-            for row, raw in project_rows(bot, grant, principal, commands, aliases, refs, observed, state):
+            for row, raw in project_rows(
+                bot, grant, principal, commands, aliases, refs, observed, state, hardware=hardware
+            ):
                 if not _matches(row, unit, model, available, mine, node, resource_ref):
                     continue
                 if view == "wait":

@@ -64,6 +64,8 @@ def test_inventory_upload_uses_bot_scope_and_keeps_other_observations(client, au
         == 403
     )
     assert client.post(access(target) + "/preview", headers=key, json=proposal("unknown", snapshot)).status_code == 422
+    nonprinting = {**snapshot, "accelerators": [{"model": "Example\nDevice", "count": 4}]}
+    assert client.post(access(target) + "/preview", headers=key, json=proposal("node1", nonprinting)).status_code == 422
     assert (
         client.post(
             access(target) + "/preview", headers=key, json=proposal("node1", {**snapshot, "private": 1})

@@ -6,11 +6,26 @@
     width="min(340px, calc(100vw - 32px))"
   >
     <template #reference>
-      <el-button link size="small" type="primary">{{ $t('nodeAccess.loginAddress') }}</el-button>
+      <el-button class="shared-node-address-trigger" link size="small" type="primary">
+        {{ $t('nodeAccess.loginAddress') }}
+      </el-button>
     </template>
-    <code v-if="address && address.deadline > clock" class="shared-node-address">{{
-      formatNodeAccess(address)
-    }}</code>
+    <dl v-if="address && address.deadline > clock" class="shared-node-address">
+      <dt>{{ $t(hostIsIp ? 'nodeAccess.ipAddress' : 'nodeAccess.hostname') }}</dt>
+      <dd>
+        <code>{{ address.host }}</code>
+      </dd>
+      <template v-if="address.ip">
+        <dt>{{ $t('nodeAccess.ipAddress') }}</dt>
+        <dd>
+          <code>{{ address.ip }}</code>
+        </dd>
+      </template>
+      <dt>{{ $t('nodeAccess.sshPort') }}</dt>
+      <dd>
+        <code>{{ address.port }}</code>
+      </dd>
+    </dl>
     <span v-else role="status">{{
       $t(loading ? 'common.loading' : 'nodeAccess.sharedUnavailable')
     }}</span>
@@ -18,8 +33,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
-import { formatNodeAccess } from '../utils/nodeAccess'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   node: { type: String, required: true },
@@ -30,6 +44,10 @@ const props = defineProps({
 const visible = ref(false)
 const address = ref(null)
 const loading = ref(false)
+const hostIsIp = computed(() => {
+  const host = address.value?.host ?? ''
+  return host.includes(':') || /^\d+(?:\.\d+){3}$/.test(host)
+})
 
 watch([visible, () => props.node, () => props.revision], async ([open, node], _, onCleanup) => {
   address.value = null
@@ -49,7 +67,24 @@ watch([visible, () => props.node, () => props.revision], async ([open, node], _,
 </script>
 
 <style scoped>
+.shared-node-address-trigger.is-link {
+  border-inline-width: 0;
+  padding-inline: 0;
+}
+
 .shared-node-address {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.shared-node-address dt {
+  color: var(--el-text-color-secondary);
+}
+
+.shared-node-address dd {
+  margin: 0;
   overflow-wrap: anywhere;
 }
 </style>
