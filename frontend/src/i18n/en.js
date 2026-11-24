@@ -58,6 +58,9 @@ export default {
   nodeAccess: {
     title: 'Node access',
     loginAddress: 'Login address',
+    hostname: 'Hostname',
+    ipAddress: 'IP address',
+    sshPort: 'SSH port',
     sharedUnavailable: 'Login address unavailable.',
     workbenchAddress: 'Find login addresses in My Resources',
     purpose:

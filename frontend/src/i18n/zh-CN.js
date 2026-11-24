@@ -57,6 +57,9 @@ export default {
   nodeAccess: {
     title: '节点连接',
     loginAddress: '登录地址',
+    hostname: '域名',
+    ipAddress: 'IP 地址',
+    sshPort: 'SSH 端口',
     sharedUnavailable: '暂时无法查看登录地址。',
     workbenchAddress: '前往个人资源台查看登录地址',
     purpose: '资源持有者可在个人资源台或通过 Agent 查看节点的 SSH 地址和端口。',
