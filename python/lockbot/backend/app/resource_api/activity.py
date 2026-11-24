@@ -129,7 +129,7 @@ class V2ActivityRecorder:
 
     async def run(self):
         while True:
-            with suppress(TimeoutError):
+            with suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=5)
             await asyncio.to_thread(self.flush)
             if self._stop.is_set():
