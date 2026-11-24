@@ -97,6 +97,9 @@
           quick-overview
         >
           <template #node-details="{ row }">
+            <span v-if="row.hardware?.length" class="node-hardware">
+              {{ row.hardware.map(({ model, count }) => `${model}×${count}`).join(' · ') }}
+            </span>
             <SharedNodeAddress
               v-if="hasAddress(row.metric_node_id || row.id)"
               :node="row.metric_node_id || row.id"
@@ -484,6 +487,11 @@ function bookingTime(user, resource) {
 </script>
 
 <style scoped>
+.node-hardware {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
 .resource-view {
   max-width: 1440px;
   margin: 0 auto;

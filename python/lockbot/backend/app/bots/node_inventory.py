@@ -6,6 +6,8 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
 
+from lockbot.backend.app.bots.node_hardware import WHOLE_MACHINE_TYPES, saved_node_hardware
+
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
 ByteCount = Annotated[int, Field(strict=True, gt=0, le=2**53 - 1)]
 
@@ -38,6 +40,32 @@ class InventoryUpdates(BaseModel):
 def inventory_document(bot, node_ids):
     nodes = json.loads(bot.node_inventory_config or "{}")
     return {"version": 1, "nodes": {node: nodes[node] for node in node_ids if node in nodes}}
+
+
+def resource_node_hardware(bot):
+    """Use whole-node host observations, falling back to earlier manual registrations."""
+    if bot.bot_type not in WHOLE_MACHINE_TYPES:
+        return {}
+    hardware = saved_node_hardware(bot)
+    try:
+        observations = json.loads(bot.node_inventory_config or "{}")
+    except (TypeError, ValueError):
+        return hardware
+    if not isinstance(observations, dict):
+        return hardware
+    for node, observation in observations.items():
+        if not isinstance(observation, dict) or observation.get("scope") != "host":
+            continue
+        try:
+            accelerators = NodeInventory.model_validate(observation).accelerators
+        except ValueError:
+            continue
+        by_model = {}
+        for accelerator in accelerators:
+            row = by_model.setdefault(accelerator.model.casefold(), {"model": accelerator.model, "count": 0})
+            row["count"] += accelerator.count
+        hardware[node] = list(by_model.values())
+    return hardware
 
 
 def update_inventory(raw, previous, node_ids):

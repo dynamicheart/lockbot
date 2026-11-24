@@ -207,6 +207,87 @@ def finish(client, challenge, *, proof=None):
     )
 
 
+def test_host_inventory_reaches_agent_reads_and_shared_view(
+    client, auth_header, session_factory, monkeypatch, tmp_path
+):
+    from datetime import datetime, timedelta, timezone
+
+    from lockbot.backend.app.bots.manager import BotManager
+
+    monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
+    manager = BotManager(max_inflight=5, drain_timeout=2)
+    for module in ("v2.resources", "views"):
+        monkeypatch.setattr(f"lockbot.backend.app.resource_api.{module}.bot_manager", manager)
+    bot_id = make_bot(client, auth_header, "Hardware inventory")
+    manager.start_bot(
+        bot_id,
+        {
+            "BOT_TYPE": "NODE",
+            "BOT_ID": bot_id,
+            "DATA_DIR": str(tmp_path / "bots"),
+            "CLUSTER_CONFIGS": {"node-23": "demo"},
+        },
+    )
+
+    try:
+        old_hardware = [{"model": "Old device", "count": 2}]
+        client.patch(
+            f"/api/bots/{bot_id}/node-hardware",
+            headers=auth_header,
+            json={"version": 1, "nodes": {"node-23": old_hardware}},
+        ).raise_for_status()
+        config_response = client.post(
+            "/api/configuration-credentials",
+            headers=auth_header,
+            json={"label": "inventory", "bot_ids": [bot_id], "scopes": ["node_inventory:write"]},
+        ).raise_for_status()
+        config_headers = bearer(config_response.json()["credential"])
+        config_path = f"/api/bots/{bot_id}/configuration-access"
+        challenge = issue(client)
+        chat(bot_id, challenge)
+        agent_headers = bearer(finish(client, challenge).raise_for_status().json()["credential"])
+        resource_path = API + "/resources"
+        bot = client.get(f"/api/bots/{bot_id}", headers=auth_header).raise_for_status().json()
+        shared_headers = bearer(bot["view_url"].rsplit("/", 1)[-1])
+        shared_path = f"/api/bot-views/{bot_id}/state"
+        stamp = datetime.now(timezone.utc)
+        accelerators = [
+            {"model": "Example Device", "count": 2, "memory_bytes_per_card": 64 * 2**30},
+            {"model": "Example Device", "count": 2, "memory_bytes_per_card": 96 * 2**30},
+        ]
+
+        def upload(scope, observed_at):
+            sample = {"observed_at": observed_at.isoformat(), "scope": scope, "accelerators": accelerators}
+            payload = {
+                "scope": "node_inventory:write",
+                "configuration": {"version": 1, "nodes": {"node-23": sample}},
+            }
+            plan = client.post(config_path + "/preview", headers=config_headers, json=payload).raise_for_status()
+            client.put(
+                config_path, headers=config_headers, json={**payload, "receipt": plan.json()["receipt"]}
+            ).raise_for_status()
+
+        upload("container", stamp - timedelta(seconds=1))
+        (fallback,) = client.get(resource_path, headers=agent_headers).raise_for_status().json()["rows"]
+        assert fallback["hardware"] == old_hardware
+
+        upload("host", stamp)
+        expected = [{"model": "Example Device", "count": 4}]
+        (found,) = client.get(resource_path, headers=agent_headers).raise_for_status().json()["rows"]
+        assert found["hardware"] == expected
+        for fields in (None, "hardware"):
+            params = {"resource_ref": found["resource_ref"], "model": "eXample device"}
+            if fields:
+                params["fields"] = fields
+            (row,) = client.get(resource_path, headers=agent_headers, params=params).raise_for_status().json()["rows"]
+            assert row["hardware"] == expected
+
+        (shared,) = client.get(shared_path, headers=shared_headers).raise_for_status().json()["resources"]
+        assert shared["hardware"] == expected
+    finally:
+        manager.stop_bot(bot_id)
+
+
 def test_management_activity_identifies_v2_tokens_and_counts_recent_verified_access(
     client, auth_header, admin_header, db_session, session_factory, monkeypatch
 ):
@@ -809,10 +890,10 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
         original_project = v2_resources.project_rows
         observed_scopes = []
 
-        def capture_scope(bot, grant, principal, commands, aliases, refs, observed, state):
+        def capture_scope(bot, grant, principal, commands, aliases, refs, observed, state, *, hardware):
             card_ids = {node: [card["dev_id"] for card in cards] for node, cards in state.items()}
             observed_scopes.append((set(refs), card_ids))
-            return original_project(bot, grant, principal, commands, aliases, refs, observed, state)
+            return original_project(bot, grant, principal, commands, aliases, refs, observed, state, hardware=hardware)
 
         with monkeypatch.context() as scoped:
             scoped.setattr(v2_resources, "project_rows", capture_scope)
@@ -1244,8 +1325,8 @@ def test_agent_v2_drops_inflight_resource_snapshot_when_access_changes(
         ref = first["rows"][0]["resource_ref"]
         original = v2_resources.project_rows
 
-        def change_access_during_projection(*args):
-            result = original(*args)
+        def change_access_during_projection(*args, **kwargs):
+            result = original(*args, **kwargs)
             with session_factory() as db:
                 if change == "revoke":
                     grant = db.scalar(select(PersonalGrant).where(PersonalGrant.bot_id == bot_id))

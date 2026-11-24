@@ -76,6 +76,9 @@ mapping keyed by LockBot node ID. Each value contains `source_id` from the expor
 {"node-01": {"source_id": "collector-node-a", "path": "/var/lib/lockbot-inventory/node-a.json"}}
 ```
 
+Each node mapping may include `model_aliases`, an object mapping the exact observed model
+name to its shorter inventory label. The upload uses that label and the observed card count.
+
 Run `scripts/datasource/upload_node_inventory.py` with `--origin`, `--bot`, `--key-file` and `--mapping`
 to preview. After the administrator confirms the mapping, run the same command with `--apply`.
 When a snapshot is missing or unreadable, the uploader skips that node and keeps its previous record.

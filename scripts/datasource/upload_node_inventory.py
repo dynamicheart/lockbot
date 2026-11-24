@@ -40,7 +40,10 @@ def observation(entry, now):
     devices = saved["devices"]
     if not devices or any(not card.get("model") for card in devices):
         raise ValueError("No verified accelerator models")
-    counts = Counter((card["model"], card.get("memory_total_bytes")) for card in devices)
+    aliases = entry.get("model_aliases", {})
+    if not isinstance(aliases, dict) or any(not isinstance(name, str) or not name.strip() for name in aliases.values()):
+        raise ValueError("Invalid accelerator model aliases")
+    counts = Counter((aliases.get(card["model"], card["model"]), card.get("memory_total_bytes")) for card in devices)
     return {
         "observed_at": stamp.isoformat(),
         "scope": saved["scope"],

@@ -9,7 +9,7 @@ from typing import Literal, NamedTuple
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func, or_, select
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func, null, or_, select
 from sqlalchemy.orm import Mapped, Session, load_only, mapped_column
 
 from lockbot.backend.app import config
@@ -164,6 +164,7 @@ class ResourceReadBot(NamedTuple):
     cluster_configs: str
     config_overrides: str | None
     node_hardware_config: str | None
+    node_inventory_config: str | None
     utilization_config: str | None
 
 
@@ -174,7 +175,7 @@ def _packed_grant_rows(db, query):
     return json.loads(db.scalar(select(packed)))
 
 
-def active_resource_grants(db: Session, principal: PersonalCredential, *, grant_ref=None, bot_id=None):
+def active_resource_grants(db: Session, principal: PersonalCredential, *, grant_ref=None, bot_id=None, inventory=False):
     """Load the groups visible to a resource query, including Feishu routing, in one read."""
     if grant_ref is None and bot_id is None:
         columns = (
@@ -189,6 +190,7 @@ def active_resource_grants(db: Session, principal: PersonalCredential, *, grant_
             Bot.cluster_configs,
             Bot.config_overrides,
             Bot.node_hardware_config,
+            Bot.node_inventory_config if inventory else null(),
             Bot.utilization_config,
         )
         query = _resource_grant_query(principal, columns, grant_ref=None, bot_id=None)
@@ -197,6 +199,7 @@ def active_resource_grants(db: Session, principal: PersonalCredential, *, grant_
             for ref, at, *bot, platform, app_id in _packed_grant_rows(db, query.order_by(PersonalGrant.public_id))
             if _matches_read_namespace(principal, platform, app_id)
         ]
+    inventory_fields = (Bot.node_inventory_config,) if inventory else ()
     query = _resource_grant_query(principal, (PersonalGrant, Bot), grant_ref=grant_ref, bot_id=bot_id).options(
         load_only(PersonalGrant.public_id, PersonalGrant.confirmed_at, raiseload=True),
         load_only(
@@ -210,6 +213,7 @@ def active_resource_grants(db: Session, principal: PersonalCredential, *, grant_
             Bot.config_overrides,
             Bot.node_hardware_config,
             Bot.utilization_config,
+            *inventory_fields,
             raiseload=True,
         ),
     )
