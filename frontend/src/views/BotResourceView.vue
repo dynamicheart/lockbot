@@ -30,7 +30,7 @@
                 })
               }}
             </span>
-            <router-link v-if="addressAuthorizationRequired" :to="{ name: 'PersonalResources' }">
+            <router-link v-if="showPersonalPanelLink" :to="{ name: 'PersonalResources' }">
               {{ $t('nodeAccess.workbenchAddress') }}
             </router-link>
           </div>
@@ -225,6 +225,7 @@ import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import SharedNodeAddress from '../components/SharedNodeAddress.vue'
 import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
 import { resourceViewDeadline } from '../utils/resourceViewLifetime'
+import { personalPanelWebDisabled } from '../utils/personalPanelWeb'
 
 const route = useRoute()
 const router = useRouter()
@@ -238,6 +239,9 @@ const failed = ref(false)
 const clock = ref(Date.now())
 const availableAddresses = ref(new Map())
 const addressAuthorizationRequired = ref(false)
+const showPersonalPanelLink = computed(
+  () => !personalPanelWebDisabled && addressAuthorizationRequired.value
+)
 const addressRevision = ref(0)
 let token = ''
 let botId = ''
