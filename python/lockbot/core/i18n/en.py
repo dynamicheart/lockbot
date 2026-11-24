@@ -21,7 +21,7 @@ MESSAGES = {
     "notify.api_purpose": "\nNote: {purpose}",
     "notify.api_agent_label": "\nAgent: {label}",
     "help.agent_skill": "Agent usage: ",
-    "help.agent_lock_hint": "Send this link to your Agent to install the LockBot Skill: {url}",
+    "help.agent_lock_hint": "LockBot Skill download: {url}",
     "public_docs.agent_api_intro": "Use a personal Agent Key bound in a group to operate your resources in that group.",
     "public_docs.resource_queries": "To query resources, start with `GET /api/agent/context`, "
     "then open `GET /api/agent/resources` for the query example.",

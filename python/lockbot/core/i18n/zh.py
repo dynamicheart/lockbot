@@ -18,7 +18,7 @@ MESSAGES = {
     "notify.api_purpose": "\n备注：{purpose}",
     "notify.api_agent_label": "\nAgent：{label}",
     "help.agent_skill": "Agent 使用：",
-    "help.agent_lock_hint": "把链接发给你的 Agent，安装 LockBot Skill：{url}",
+    "help.agent_lock_hint": "LockBot Skill 安装包：{url}",
     "public_docs.agent_api_intro": "使用在群内完成绑定的个人 Agent Key，操作该群中属于你自己的资源。",
     "public_docs.resource_queries": "查询资源先用 `GET /api/agent/context` 核对绑定，再展开 "
     "`GET /api/agent/resources` 查看查询示例。",

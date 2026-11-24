@@ -280,7 +280,7 @@
                   effect="plain"
                   class="group-tag"
                   @click.stop="copyText(gid)"
-                  >{{ gid }}</el-tag
+                  >{{ row.group_name || gid }}</el-tag
                 >
                 <el-tag
                   v-if="row.group_id.split(',').length > 2"

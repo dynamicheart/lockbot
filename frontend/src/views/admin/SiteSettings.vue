@@ -166,7 +166,7 @@
             <el-input
               v-model="form.agent_promotion_text_zh"
               :maxlength="120"
-              placeholder="把链接发给你的 Agent，安装 LockBot Skill："
+              placeholder="LockBot Skill 安装包："
               clearable
               style="margin-bottom: 8px"
             >
@@ -175,7 +175,7 @@
             <el-input
               v-model="form.agent_promotion_text_en"
               :maxlength="120"
-              placeholder="Send this link to your Agent to install the LockBot Skill: "
+              placeholder="LockBot Skill download: "
               clearable
             >
               <template #prepend>English</template>
