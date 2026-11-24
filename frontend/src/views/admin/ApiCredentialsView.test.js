@@ -1,4 +1,3 @@
-/* eslint-disable vue/one-component-per-file -- Component stubs render tab labels. */
 import { expect, it, vi } from 'vitest'
 import { createSSRApp } from 'vue'
 import { renderToString } from 'vue/server-renderer'
@@ -13,26 +12,18 @@ const auth = vi.hoisted(() => ({
 }))
 
 vi.mock('../../stores/auth', () => ({ useAuthStore: () => auth }))
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ query: {} }),
+  useRouter: () => ({ replace: vi.fn() }),
+}))
 vi.mock('../../components/ConfigurationCredentialManager.vue', () => ({
   default: { template: '<div>configuration-manager</div>' },
 }))
-vi.mock('../../components/AuditCredentialManager.vue', () => ({
-  default: { template: '<div>audit-manager</div>' },
-}))
-
-it.each([
-  ['user', false],
-  ['admin', false],
-  ['super_admin', true],
-])('shows the audit credentials tab only to super administrators (%s)', async (role, showAudit) => {
+it.each(['user', 'admin', 'super_admin'])('only shows configuration credentials (%s)', async (role) => {
   auth.user.role = role
   const app = createSSRApp(ApiCredentialsView)
   app.config.globalProperties.$t = (key) => key
-  app.component('ElTabs', { template: '<div><slot /></div>' })
-  app.component('ElTabPane', { props: { label: { type: String, required: true } }, template: '<span>{{ label }}</span>' })
   const rendered = await renderToString(app)
-
   expect(rendered).toContain('configuration-manager')
-  expect(rendered.includes('configurationCredentials.auditTab')).toBe(showAudit)
-  expect(rendered).not.toContain('audit-manager')
+  expect(rendered).not.toContain('auditTab')
 })

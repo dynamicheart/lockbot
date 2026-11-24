@@ -15,6 +15,7 @@ from collections import OrderedDict
 import requests
 
 from lockbot.core.message_adapter import MessageAdapter, ReplyLink
+from lockbot.core.platforms.feishu_proxy import request as proxy_request
 
 API_ROOT = "https://open.feishu.cn/open-apis"
 _OPEN_ID = re.compile(r"ou_[A-Za-z0-9_-]+\Z")
@@ -73,7 +74,34 @@ class FeishuClient:
         self._names = OrderedDict()
         self._name_errors = {}
         self._groups = OrderedDict()
+        self._label_store = None
+        self._last_labels = {"user": OrderedDict(), "group": OrderedDict()}
         self._names_lock = threading.Lock()
+
+    def set_display_label_store(self, store, load):
+        if self._label_store is not None:
+            return
+        saved = load()
+        with self._names_lock:
+            if self._label_store is None:
+                for kind, values in saved.items():
+                    self._last_labels[kind].update(reversed(tuple(values.items())))
+                self._label_store = store
+
+    def _remember_labels(self, kind, labels, observed_at):
+        if not labels:
+            return
+        with self._names_lock:
+            saved = self._last_labels[kind]
+            for identifier, name in labels.items():
+                saved[identifier] = name
+                saved.move_to_end(identifier)
+            limit = 1024 if kind == "user" else 256
+            while len(saved) > limit:
+                saved.popitem(last=False)
+            store = self._label_store
+        if store is not None:
+            store.save(kind, labels, observed_at)
 
     @property
     def _http_options(self):
@@ -96,6 +124,11 @@ class FeishuClient:
             self._token = ""
             self._expires = 0.0
         self.reset_transport_cache()
+        if not secret:
+            with self._names_lock:
+                self._label_store = None
+                for labels in self._last_labels.values():
+                    labels.clear()
 
     def _check_credentials(self):
         if self.credential_guard is not None:
@@ -112,12 +145,13 @@ class FeishuClient:
             if not self.app_id or not self._secret:
                 raise FeishuAPIError("Feishu application credentials are missing")
             try:
-                response = requests.post(
+                response = proxy_request(
+                    requests.post,
                     API_ROOT + "/auth/v3/tenant_access_token/internal",
+                    retry=True,
                     json={"app_id": self.app_id, "app_secret": self._secret},
                     timeout=(3, 8),
                     allow_redirects=False,
-                    **self._http_options,
                 )
                 data = response.json()
                 if response.status_code != 200 or data.get("code") != 0:
@@ -139,7 +173,9 @@ class FeishuClient:
         self._check_credentials()
         if self.credential_guard is not None and self._token != token:
             raise FeishuAPIError("Application credentials changed during token acquisition")
-        return method(url, headers={"Authorization": "Bearer " + token}, **options)
+        return proxy_request(
+            method, url, retry=method is requests.get, headers={"Authorization": "Bearer " + token}, **options
+        )
 
     def send(self, payload):
         try:
@@ -150,7 +186,6 @@ class FeishuClient:
                 json=payload,
                 timeout=(3, 8),
                 allow_redirects=False,
-                **self._http_options,
             )
             data = response.json()
             if response.status_code != 200 or data.get("code") != 0:
@@ -171,7 +206,6 @@ class FeishuClient:
                 json=payload,
                 timeout=(3, 8),
                 allow_redirects=False,
-                **self._http_options,
             )
             data = response.json()
             if not isinstance(data, dict) or type(data.get("code")) is not int:
@@ -219,7 +253,6 @@ class FeishuClient:
                 json={"reaction_type": {"emoji_type": "DONE"}},
                 timeout=(3, 5),
                 allow_redirects=False,
-                **self._http_options,
             )
             data = response.json()
             if response.status_code != 200 or data.get("code") != 0:
@@ -235,7 +268,6 @@ class FeishuClient:
                 API_ROOT + "/bot/v3/info/",
                 timeout=(3, 8),
                 allow_redirects=False,
-                **self._http_options,
             )
             data = response.json()
             open_id = data.get("bot", {}).get("open_id", "")
@@ -254,13 +286,13 @@ class FeishuClient:
             if not refresh and cached and cached[2] > time.monotonic():
                 return {"name": cached[0], "status": cached[1]}
         name, status, ttl = "", "unavailable", 300
+        observed_at = time.time()
         try:
             response = self._authorized_request(
                 requests.get,
                 API_ROOT + "/im/v1/chats/" + chat_id,
                 timeout=(3, 5),
                 allow_redirects=False,
-                **self._http_options,
             )
             data = response.json()
             candidate = data.get("data", {}).get("name")
@@ -271,10 +303,12 @@ class FeishuClient:
                 status = "permission"
         except (requests.RequestException, ValueError, TypeError, AttributeError, FeishuAPIError):
             pass
+        if status == "ok":
+            self._remember_labels("group", {chat_id: name}, observed_at)
         with self._names_lock:
             # Keep a previously known name on transient failures and name changes only affect display.
             old = self._groups.get(chat_id)
-            name = name or (old[0] if old else "")
+            name = name or (old[0] if old else "") or self._last_labels["group"].get(chat_id, "")
             self._groups[chat_id] = (name, status, time.monotonic() + ttl)
             self._groups.move_to_end(chat_id)
             while len(self._groups) > 256:
@@ -289,7 +323,7 @@ class FeishuClient:
             cached = self._names.get(open_id)
             if cached and cached[1] > time.monotonic() and cached[0] != open_id:
                 return cached[0]
-        return None
+            return self._last_labels["user"].get(open_id)
 
     def cached_group_name(self, chat_id):
         """Read a selected group's cached label without fetching or listing chats."""
@@ -299,7 +333,7 @@ class FeishuClient:
             cached = self._groups.get(chat_id)
             if cached and cached[2] > time.monotonic() and cached[0]:
                 return cached[0]
-        return None
+            return self._last_labels["group"].get(chat_id)
 
     def user_name_states(self, identities):
         """Closed display-only state; raw contact responses never escape this client."""
@@ -316,6 +350,8 @@ class FeishuClient:
                     )
                 else:
                     result[identity] = {"status": "unknown"}
+                if "name" not in result[identity] and identity in self._last_labels["user"]:
+                    result[identity]["name"] = self._last_labels["user"][identity]
         return result
 
     def warm_user_names(self, identities):
@@ -336,6 +372,7 @@ class FeishuClient:
         if not missing:
             return
         names, failure = {}, "unavailable"
+        observed_at = time.time()
         try:
             response = self._authorized_request(
                 requests.get,
@@ -343,7 +380,6 @@ class FeishuClient:
                 params=[("user_id_type", "open_id"), *[("user_ids", uid) for uid in missing]],
                 timeout=(2, 4),
                 allow_redirects=False,
-                **self._http_options,
             )
             if response.status_code == 403:
                 failure = "permission"
@@ -354,12 +390,15 @@ class FeishuClient:
                     if not isinstance(item, dict):
                         continue
                     uid, name = item.get("open_id"), item.get("name")
-                    if uid in missing and isinstance(name, str) and name.strip():
-                        names[uid] = name.strip()[:80]
+                    if uid in missing and isinstance(name, str):
+                        name = "".join(char for char in name if char.isprintable()).strip()[:80]
+                        if name and name != uid:
+                            names[uid] = name
         except requests.Timeout:
             failure = "timeout"
         except (requests.RequestException, FeishuAPIError, ValueError, TypeError, AttributeError):
             pass
+        self._remember_labels("user", names, observed_at)
         now = time.monotonic()
         with self._names_lock:
             for uid in missing:
@@ -386,6 +425,7 @@ class FeishuClient:
             if cached and cached[1] > time.monotonic():
                 return
         name, ttl = open_id, 300
+        observed_at = time.time()
         try:
             response = self._authorized_request(
                 requests.get,
@@ -393,7 +433,6 @@ class FeishuClient:
                 params={"user_id_type": "open_id"},
                 timeout=(3, 5),
                 allow_redirects=False,
-                **self._http_options,
             )
             data = response.json()
             candidate = data.get("data", {}).get("user", {}).get("name")
@@ -403,9 +442,13 @@ class FeishuClient:
                 and isinstance(candidate, str)
                 and candidate.strip()
             ):
-                name, ttl = candidate.strip()[:80], 21600
+                verified = "".join(char for char in candidate if char.isprintable()).strip()[:80]
+                if verified and verified != open_id:
+                    name, ttl = verified, 21600
         except (requests.RequestException, FeishuAPIError, ValueError, AttributeError, TypeError):
             pass
+        if name != open_id:
+            self._remember_labels("user", {open_id: name}, observed_at)
         with self._names_lock:
             previous = self._names.get(open_id)
             if name == open_id and previous and previous[0] != open_id:
@@ -418,7 +461,8 @@ class FeishuClient:
 
     def display_text(self, text):
         with self._names_lock:
-            names = {key: val[0] for key, val in self._names.items()}
+            names = dict(self._last_labels["user"])
+            names.update((key, val[0]) for key, val in self._names.items() if val[0] != key)
         return re.sub(r"\bou_[A-Za-z0-9_-]+\b", lambda match: names.get(match[0], match[0]), text)
 
 

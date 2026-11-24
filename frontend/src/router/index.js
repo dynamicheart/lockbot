@@ -14,12 +14,15 @@ import ForceChangePassword from '../views/ForceChangePassword.vue'
 import NotFound from '../views/NotFound.vue'
 import { isDemoMode, LS_KEYS } from '../utils/demoMode'
 import { capturePersonalPanelTickets } from '../utils/personalPanelTicket'
+import { personalPanelWebDisabled } from '../utils/personalPanelWeb'
 
 const routes = [
   {
     path: '/me/:view(groups|credentials|holdings|reservations|group)?/:selection?',
     name: 'PersonalResources',
-    component: () => import('../views/PersonalResources.vue'),
+    component: personalPanelWebDisabled
+      ? () => import('../views/PersonalPanelRetired.vue')
+      : () => import('../views/PersonalResources.vue'),
     meta: { resourceView: true },
   },
   {
@@ -152,7 +155,10 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
-  if (to.path === '/me' && capturePersonalPanelTickets(to.query)) {
+  if (
+    (to.path === '/me' || (personalPanelWebDisabled && to.name === 'PersonalResources')) &&
+    capturePersonalPanelTickets(to.query)
+  ) {
     return next({ path: '/me', replace: true })
   }
   if (to.meta.resourceView) return next()

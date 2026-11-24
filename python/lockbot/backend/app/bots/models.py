@@ -51,6 +51,7 @@ class Bot(Base):
     node_access_config: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Optional administrator-confirmed accelerator inventory for whole-machine resources.
     node_hardware_config: Mapped[str | None] = mapped_column(Text, nullable=True)
+    node_inventory_config: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

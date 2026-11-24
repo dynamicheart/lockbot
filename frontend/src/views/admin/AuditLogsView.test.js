@@ -51,7 +51,7 @@ afterEach(() => {
   app = null
   vi.clearAllMocks()
 })
-it('defaults off, resets the page on toggle, and ignores old read-inclusive results', async () => {
+it('loads a selected read action and ignores its stale results after clearing the filter', async () => {
   const pending = []
   api.get.mockImplementation(
     (path, config) =>
@@ -66,20 +66,20 @@ it('defaults off, resets the page on toggle, and ignores old read-inclusive resu
   app.directive('loading', {})
   app.mount({ children: [] })
   const view = app._instance.setupState
-  expect(pending[0].params).toEqual({ page: 1, limit: 50, include_read_events: false })
+  expect(pending[0].params).toEqual({ page: 1, limit: 50 })
   pending[0].resolve({ data: { total: 0, items: [] } })
   await flush()
   view.page = 3
-  view.filters.includeReadEvents = true
-  const inclusive = view.fetchLogs()
-  expect(pending[1].params.include_read_events).toBe(true)
-  view.filters.includeReadEvents = false
+  view.filters.action = 'task_private.read'
+  view.onFilterChange()
+  expect(pending[1].params).toEqual({ page: 1, limit: 50, action: 'task_private.read' })
+  view.filters.action = ''
   view.onFilterChange()
   expect(view.page).toBe(1)
-  expect(pending[2].params).toEqual({ page: 1, limit: 50, include_read_events: false })
+  expect(pending[2].params).toEqual({ page: 1, limit: 50 })
   expect(pending[1].signal.aborted).toBe(true)
-  pending[1].resolve({ data: { total: 90, items: [{ action: 'task_notes.read' }] } })
-  await inclusive
+  pending[1].resolve({ data: { total: 90, items: [{ action: 'task_private.read' }] } })
+  await flush()
   expect(view.logs).toEqual([])
   expect(view.total).toBe(0)
   pending[2].resolve({ data: { total: 1, items: [{ action: 'bot.start' }] } })
@@ -90,7 +90,6 @@ it('defaults off, resets the page on toggle, and ignores old read-inclusive resu
   view.onFilterChange()
   expect(pending[3].params).toMatchObject({
     action: 'task_notes.denied',
-    include_read_events: false,
   })
   pending[3].resolve({ data: { total: 1, items: [{ action: 'task_notes.denied' }] } })
   await flush()

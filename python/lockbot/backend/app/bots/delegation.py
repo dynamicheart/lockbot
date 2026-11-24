@@ -18,24 +18,34 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from lockbot.backend.app import config
 from lockbot.backend.app.audit.models import AuditLog
+from lockbot.backend.app.audit.service import write_audit_log
 from lockbot.backend.app.auth.dependencies import get_current_user
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.datasource import UtilizationConfig, public_datasource, serialized_datasource
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import (
+    NodeAccessError,
     _unique_object,
     mapping_version,
+    merge_login_metadata,
     node_ids,
     parse_access_mapping,
     saved_node_access,
     serialize_node_access,
 )
-from lockbot.backend.app.bots.router import _owned_bot
+from lockbot.backend.app.bots.node_hardware import (
+    WHOLE_MACHINE_TYPES,
+    parse_node_hardware,
+    saved_node_hardware,
+    serialize_node_hardware,
+)
+from lockbot.backend.app.bots.node_inventory import inventory_document, update_inventory
+from lockbot.backend.app.bots.router import _owned_bot, _require_bot_owner
 from lockbot.backend.app.database import Base, get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_auth.authority import authority_guard
 
-Scope = Literal["node_access:write", "datasource:write"]
+Scope = Literal["node_access:write", "datasource:write", "node_inventory:write"]
 MAX_TTL = 7 * 86400
 MAX_CONFIGURATION_BYTES = 256 * 1024
 _TOKEN = re.compile(r"lbc1\.([A-Za-z0-9_-]{22})\.[A-Za-z0-9_-]{43}")
@@ -96,7 +106,7 @@ class Lifetime(BaseModel):
 class CreateCredential(Lifetime):
     label: str = Field(min_length=1, max_length=64)
     bot_ids: list[StrictInt] = Field(min_length=1, max_length=100)
-    scopes: list[Scope] = Field(min_length=1, max_length=2)
+    scopes: list[Scope] = Field(min_length=1, max_length=3)
 
     @field_validator("label")
     @classmethod
@@ -130,6 +140,13 @@ class PreviewChange(BaseModel):
 
 class ApplyChange(PreviewChange):
     receipt: str = Field(max_length=80)
+
+
+class ManualNodeMapping(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    version: int = Field(ge=1, le=1)
+    nodes: dict[str, dict] = Field(min_length=1, max_length=512)
 
 
 def _now():
@@ -403,6 +420,8 @@ def _inventory(bot):
 def _current(bot, scope):
     if scope == "datasource:write":
         return public_datasource(bot)
+    if scope == "node_inventory:write":
+        return inventory_document(bot, _inventory(bot)["node_ids"])
     nodes = saved_node_access(bot)
     return {"version": mapping_version(nodes), "nodes": nodes}
 
@@ -412,6 +431,13 @@ def _proposed(bot, change, current):
     if len(json.dumps(proposed).encode()) > MAX_CONFIGURATION_BYTES:
         _deny(413, "configuration_too_large")
     inventory = _inventory(bot)
+    if change.scope == "node_inventory:write":
+        if change.remove_node_ids:
+            _deny(422, "configuration_invalid")
+        try:
+            return update_inventory(proposed, current, inventory["node_ids"])
+        except (ValidationError, ValueError):
+            _deny(422, "configuration_invalid")
     if change.scope == "datasource:write":
         if change.remove_node_ids:
             _deny(422, "configuration_invalid")
@@ -434,7 +460,7 @@ def _proposed(bot, change, current):
     if removed.intersection(updates) or not removed <= set(inventory["node_ids"]):
         _deny(422, "configuration_resource_unknown")
     nodes = {node: entry for node, entry in current["nodes"].items() if node not in removed}
-    nodes.update(updates)
+    nodes.update(merge_login_metadata(nodes, updates))
     return {"version": mapping_version(nodes), "nodes": nodes}
 
 
@@ -463,6 +489,130 @@ def inspect_configuration(bot_id: int, request: Request, response: Response, db:
         row.last_used_at = _now()
         db.commit()
         return payload
+
+
+@router.get("/api/bots/{bot_id}/node-inventory", include_in_schema=False)
+def get_node_inventory(
+    bot_id: int, response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    bot = _require_bot_owner(bot_id, user, db, "view node inventory")
+    response.headers["Cache-Control"] = "no-store"
+    ids = _inventory(bot)["node_ids"]
+    return {
+        "node_ids": ids,
+        **inventory_document(bot, ids),
+        "login_addresses": {node: value for node, value in saved_node_access(bot).items() if node in ids},
+        "registered_hardware": saved_node_hardware(bot),
+    }
+
+
+def _manual_node_changes(bot, document):
+    nodes = document.nodes
+    ids = set(_inventory(bot)["node_ids"])
+    address_fields = {"host", "ip", "port", "method", "note"}
+
+    def invalid(node, field):
+        raise HTTPException(
+            422,
+            {"code": "invalid_node_metadata_mapping", "node": node[:256], "field": field},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    login = {}
+    for node, entry in nodes.items():
+        if node not in ids:
+            invalid(node, "node")
+        flat_login = entry.keys() & address_fields
+        if "login" in entry and flat_login:
+            invalid(node, "mixedLogin")
+        if not entry or entry.keys() - address_fields - {"login", "hardware"}:
+            invalid(node, "fields")
+        if "login" in entry:
+            login[node] = entry["login"]
+        elif flat_login:
+            login[node] = (
+                None
+                if flat_login == {"host"} and entry["host"] is None
+                else {field: entry[field] for field in flat_login}
+            )
+    hardware = {node: entry["hardware"] for node, entry in nodes.items() if "hardware" in entry}
+    if hardware and bot.bot_type not in WHOLE_MACHINE_TYPES:
+        _deny(422, "node_hardware_requires_whole_machine")
+    try:
+        parsed_login = parse_access_mapping(
+            json.dumps({"version": 2, "nodes": {node: entry for node, entry in login.items() if entry is not None}}),
+            ids,
+        )
+    except NodeAccessError as error:
+        invalid(error.node, error.field)
+    except (ValueError, TypeError, RecursionError):
+        _deny(422, "invalid_node_metadata_mapping")
+    parsed_hardware = {}
+    for node, accelerators in hardware.items():
+        try:
+            parsed_hardware.update(parse_node_hardware(json.dumps({"version": 1, "nodes": {node: accelerators}})))
+        except (ValueError, TypeError, RecursionError):
+            invalid(node, "hardware")
+    current_login, current_hardware = saved_node_access(bot), saved_node_hardware(bot)
+    parsed_login = merge_login_metadata(current_login, parsed_login)
+    changes = {}
+    for node in nodes:
+        before, after = {}, {}
+        if node in login and current_login.get(node) != parsed_login.get(node):
+            before["login"] = current_login.get(node)
+            after["login"] = parsed_login.get(node)
+        if node in hardware and current_hardware.get(node, []) != parsed_hardware[node]:
+            before["hardware"] = current_hardware.get(node, [])
+            after["hardware"] = parsed_hardware[node]
+        if after:
+            changes[node] = {"before": before, "after": after}
+    return changes, current_login, current_hardware
+
+
+@router.post("/api/bots/{bot_id}/node-inventory/preview", include_in_schema=False)
+def preview_manual_node_mapping(
+    bot_id: int, body: ManualNodeMapping, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    bot = _require_bot_owner(bot_id, user, db, "preview node settings")
+    changes, _, _ = _manual_node_changes(bot, body)
+    return {"changes": changes}
+
+
+@router.patch("/api/bots/{bot_id}/node-inventory", include_in_schema=False)
+def apply_manual_node_mapping(
+    bot_id: int,
+    body: ManualNodeMapping,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_bot_owner(bot_id, user, db, "change node settings")
+    with _owned_bot(bot_id, user, db) as bot, authority_guard(bot_id):
+        changes, login, hardware = _manual_node_changes(bot, body)
+        for node, change in changes.items():
+            for field, value in change["after"].items():
+                section = login if field == "login" else hardware
+                if value:
+                    section[node] = value
+                else:
+                    section.pop(node, None)
+        if changes:
+            if any("login" in change["after"] for change in changes.values()):
+                bot.node_access_config = serialize_node_access(login)
+            if any("hardware" in change["after"] for change in changes.values()):
+                bot.node_hardware_config = serialize_node_hardware(hardware)
+            write_audit_log(
+                db,
+                user,
+                "bot.update",
+                target_type="bot",
+                target_id=bot.id,
+                target_name=bot.name,
+                detail={"node_metadata": {"changed_nodes": len(changes)}},
+                ip=request.client.host if request.client else None,
+            )
+            db.commit()
+    return {"changed_nodes": len(changes)}
 
 
 @router.post("/api/bots/{bot_id}/configuration-access/preview", tags=["Public API"])
@@ -503,12 +653,14 @@ def apply(bot_id: int, request: Request, response: Response, body: ApplyChange, 
                 bot.utilization_config = serialized_datasource(
                     UtilizationConfig.model_validate(after) if after else None
                 )
+            elif changed and body.scope == "node_inventory:write":
+                bot.node_inventory_config = json.dumps(after["nodes"], separators=(",", ":"))
             elif changed:
                 bot.node_access_config = serialize_node_access(after["nodes"])
             row.last_used_at = _now()
             counts = (
                 _change_counts(before["nodes"], after["nodes"])
-                if body.scope == "node_access:write"
+                if body.scope != "datasource:write"
                 else _change_counts(before or {}, after or {})
             )
             _audit(

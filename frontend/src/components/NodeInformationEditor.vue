@@ -3,35 +3,71 @@
   <el-dialog
     v-model="visible"
     destroy-on-close
-    :title="t('nodeInformation.title')"
-    width="min(620px, calc(100vw - 32px))"
+    :title="t(editing ? 'nodeInformation.manualImport' : 'nodeInformation.title')"
+    width="min(680px, calc(100vw - 32px))"
   >
-    <el-tabs v-if="canEditHardware" v-model="section">
-      <el-tab-pane name="access" :label="t('nodeAccess.loginAddress')" lazy>
-        <NodeAccessEditor :bot-id="botId" @changed="emit('changed')" @close="visible = false" />
-      </el-tab-pane>
-      <el-tab-pane name="hardware" :label="t('nodeHardware.title')" lazy>
-        <NodeHardwareEditor :bot-id="botId" @close="visible = false" />
-      </el-tab-pane>
-    </el-tabs>
-    <NodeAccessEditor v-else :bot-id="botId" @changed="emit('changed')" @close="visible = false" />
+    <NodeMetadataEditor
+      v-if="editing"
+      :bot-id="botId"
+      :can-edit-hardware="canEditHardware"
+      @changed="emit('changed')"
+      @close="editing = false"
+    />
+    <NodeInventorySummary v-else-if="visible" :bot-id="botId" />
+    <template v-if="!editing" #footer>
+      <div class="node-information-actions">
+        <router-link
+          class="agent-registration-link"
+          :to="{
+            name: 'ApiCredentials',
+            query: { bot: String(botId), scope: 'node_inventory:write,node_access:write' },
+          }"
+        >
+          {{ t('nodeInformation.configureCollector') }}
+        </router-link>
+        <el-button type="primary" @click="editing = true">
+          {{ t('nodeInformation.manualImport') }}
+        </el-button>
+      </div>
+    </template>
   </el-dialog>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import NodeAccessEditor from './NodeAccessEditor.vue'
-import NodeHardwareEditor from './NodeHardwareEditor.vue'
+import NodeInventorySummary from './NodeInventorySummary.vue'
+import NodeMetadataEditor from './NodeMetadataEditor.vue'
 
 defineProps({ botId: { type: Number, required: true }, canEditHardware: Boolean })
 const emit = defineEmits(['changed'])
 const { t } = useI18n()
 const visible = ref(false)
-const section = ref('access')
+const editing = ref(false)
 
 function open() {
-  section.value = 'access'
+  editing.value = false
   visible.value = true
 }
 </script>
+
+<style scoped>
+.node-information-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.agent-registration-link {
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+  text-underline-offset: 2px;
+}
+
+.agent-registration-link:hover,
+.agent-registration-link:focus-visible {
+  color: var(--el-color-primary);
+}
+</style>

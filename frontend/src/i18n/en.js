@@ -4,8 +4,39 @@ export default {
     invalidSyntax: 'Invalid JSON. Check brackets, quotes, and commas.',
   },
   nodeInformation: {
+    node: 'Node',
+    collected: 'Collected',
+    perCard: '{memory}/card',
+    notCollected: 'Not registered',
+    scope: { host: 'Host', container: 'Container', unknown: 'Unknown scope' },
+    manualImport: 'Register manually',
+    exampleLoginMethod: 'SSH via the cluster bastion',
+    exampleLoginNote: 'Use the assigned cluster account',
     title: 'Node information',
     open: 'Configure node information',
+    help: 'View node hardware and login details, or register them with an agent.',
+    configureCollector: 'Register with an agent',
+    mapping: 'Node information JSON',
+    importHint: 'Edit the example or paste your node JSON.',
+    previewChanges: 'Preview changes',
+    backToEdit: 'Back to editing',
+    saved: 'Node information saved.',
+    validationFailed: 'Check the node IDs, login addresses and hardware fields.',
+    errors: {
+      node: 'Node “{node}” is not configured for this bot. Use a node ID from the list.',
+      fields: 'Node “{node}” has unknown fields or no fields to register.',
+      login: 'Node “{node}” has an invalid login mapping.',
+      mixedLogin: 'Node “{node}” uses both login and flat login fields. Use one format.',
+      host: 'Enter a hostname or IP address in host for node “{node}”.',
+      hostForIp: 'Enter a hostname in host when providing ip for node “{node}”.',
+      ip: 'Enter a valid IPv4 address in ip for node “{node}”.',
+      port: 'Enter an integer from 1 to 65535 in port for node “{node}”.',
+      method: 'Enter one line of up to 120 characters in method for node “{node}”.',
+      note: 'Enter one line of up to 256 characters in note for node “{node}”.',
+      hardware: 'Enter a card model and a positive count for node “{node}”. List each model once.',
+      cardHardware: 'Configure card models and counts in the card settings for this bot.',
+      format: 'Use the same version and nodes structure as the example. Keys must be unique.',
+    },
   },
   nodeHardware: {
     title: 'Hardware',
@@ -55,8 +86,12 @@ export default {
     writeFailed: 'Could not confirm the change. Reopen to check the saved addresses.',
   },
   configurationCredentials: {
+    agentGuide: 'Collection and upload guide (AGENTS.md)',
+    configureWithAgent: 'Configure with an agent',
+    nodeInformation: 'Register node information',
+    nodeInformationHint: 'Allows registering login information and uploading hardware inventory.',
+    nodeInventory: 'Upload node hardware',
     title: 'Configuration credentials',
-    auditTab: 'Audit credentials',
     guideSelectTitle: 'Bot administrator',
     guideSelect: 'Choose the bots and permissions, then share the credential privately.',
     guideShareTitle: 'Maintenance Agent',
@@ -69,7 +104,6 @@ export default {
     selectAllBots: 'Select all',
     clearBots: 'Clear selection',
     botLimitHint: 'Each credential can cover up to {count} bots. Select them in separate batches.',
-    nodeAccessHint: 'Allow the Agent to register node hostnames, IP addresses, and SSH ports.',
     datasourceHint: 'Allow the Agent to set the utilization data source and its node mapping.',
     create: 'Create configuration credential',
     empty: 'No configuration credentials yet',
@@ -271,6 +305,7 @@ export default {
     proxyDeployment: 'Use server configuration',
     proxyDirect: 'Direct connection',
     proxyCustom: 'Site proxy',
+    proxyAddresses: 'Enter one HTTP(S) proxy per line, up to eight.',
     proxyEffective: 'Effective',
     proxyTest: 'Test saved HTTP connection',
     proxyHttpOk: 'HTTP available',
@@ -312,7 +347,6 @@ export default {
   },
   agentHistory: {
     agentLabel: 'Agent:',
-    noteLabel: 'Note:',
     operations: {
       command: 'Command',
       usage: { update: 'Update purpose', delete: 'Remove purpose' },
@@ -390,7 +424,6 @@ export default {
     notConfigured: 'Not configured',
     remove: 'Remove',
     setupGuide: 'Setup guide',
-    agentSetupGuide: 'Set up with your Agent',
     adminHint:
       'Configure once for this bot. Prepare the source URL, metric names, labels and node/device mappings. Test from this browser, then save the bot. Never save shared source secrets.',
     testSave: 'Test and save',
@@ -452,7 +485,6 @@ export default {
     httpSource: 'HTTP entry source',
     allSources: 'All HTTP sources',
     live: 'Live',
-    history: 'History',
     range: 'Time range',
     start: 'Start time',
     end: 'End time',
@@ -489,6 +521,8 @@ export default {
 
     allBots: 'All bots with verified traffic',
     byCredential: 'By credential',
+    byAgentToken: 'By Agent token',
+    groupBy: 'Group by',
     credential: 'User / caller type',
     credentialKinds: {
       agent: 'Agent API',
@@ -811,8 +845,9 @@ export default {
   // === Bot List ===
   botList: {
     filterByPlatform: 'Filter by platform',
-    agent_authorizations: 'Active Agent authorizations',
-    agent_usage_registrations: 'Active task registrations',
+    agent_tokens: 'Agent tokens',
+    agent_requests_hour: 'Agent requests (past hour)',
+    agent_operations_hour: 'Agent operations (past hour)',
     title: 'My Bots',
     searchPlaceholder: 'Search by name...',
     filterByStatus: 'Filter by status',
@@ -940,8 +975,6 @@ export default {
     agentAccessStats: 'Access statistics',
     agentOperations: 'Operation history',
     agentAuthorizations: 'Authorization records',
-    notesScopeHelp:
-      'Super administrators only. Temporarily shows detailed Agent notes in this operation history. Reads are audited; leaving this view turns it off.',
     authorizationAudit: 'Authorization audit',
     config: 'Configuration',
     status: 'Status',
@@ -1018,6 +1051,8 @@ export default {
   },
 
   personalWorkbench: {
+    retired: 'Personal resource dashboard retired',
+    retiredDescription: 'Use the LockBot CLI to find, request, and manage resources.',
     title: 'Personal workbench',
     navigation: 'Primary navigation',
     myAllocations: 'My allocations',
@@ -1061,16 +1096,15 @@ export default {
       'Authorizations count user–bot pairs and may be shared by Agents. Tasks count current valid resource declarations.',
     expandPurpose: 'Show full purpose',
     statistics: 'Agent statistics',
-    platformStatistics: 'Platform Agent statistics',
     active: 'Active',
     history: 'Historical',
     all: 'All',
     expired: 'Invalid',
-    authorizations: 'Active user authorizations',
-    usageRegistrations: 'Current task declarations',
+    tokens: 'Agent tokens',
 
     title: 'Agent activity',
-    description: 'Grouped by user authorization. Agents sharing a key share these counters.',
+    description: 'v2 requests are totaled per token across its authorized bots on this service.',
+    inactive: 'No active grants',
     empty: 'No Agent activity',
     user: 'User / authorization label',
     labelHelp: 'Caller-declared label; not proof of identity.',
@@ -1108,6 +1142,10 @@ export default {
 
   // === Log Viewer ===
   log: {
+    category: 'Log type',
+    allCategories: 'All types',
+    operationBadge: 'Action',
+    summaryUnavailable: 'No displayable summary',
     privateDetailsRestricted: 'Showing operation summaries.',
     all: 'All',
     commandLog: 'Command Log',
@@ -1324,7 +1362,6 @@ export default {
 
   // === Audit Logs ===
   audit: {
-    includeReadEvents: 'Include read audits',
     title: 'Audit Logs',
     operator: 'Operator',
     role: 'Role',
@@ -1349,9 +1386,6 @@ export default {
     dispatched: 'Dispatched',
     dispatchedNote:
       'The command was dispatched; this does not prove the resource operation succeeded. Read resource state to verify.',
-    privateView: 'Show Agent task notes',
-    privateViewHelp:
-      'Notes are submitted by the Agent and are visible only to the same user and super administrators.',
     targetTypes: {
       bot: 'Bot',
       user: 'User',

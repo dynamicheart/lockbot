@@ -189,7 +189,7 @@ it('renders the live active Agent count for its supplied time window and omits i
   })
   await flush()
   expect(summaries().map((node) => node.text)).toEqual(['0 / 90 min'])
-  view.mode = 'history'
+  view.period = '24h'
   await flush()
   expect(summaries()).toHaveLength(0)
 })

@@ -35,13 +35,6 @@
         rel="noopener noreferrer"
         >{{ $t('utilization.setupGuide') }}</a
       >
-      <a
-        class="setup-guide agent-setup-guide"
-        href="https://github.com/dynamicheart/lockbot/blob/main/docs/agents/AGENTS.md#maintenance"
-        target="_blank"
-        rel="noopener noreferrer"
-        >{{ $t('utilization.agentSetupGuide') }}</a
-      >
       <el-form label-position="top" @submit.prevent.stop="testAndEnable">
         <section class="datasource-section">
           <h3>{{ $t('utilization.connectionSection') }}</h3>
@@ -167,14 +160,19 @@
         <p v-if="configError" class="source-error">{{ $t('utilization.errors.' + configError) }}</p>
       </el-form>
       <template #footer>
-        <el-button @click="settings = false">{{ $t('common.cancel') }}</el-button>
-        <el-button
-          type="primary"
-          :loading="testing"
-          :disabled="!nodes.length"
-          @click="testAndEnable"
-          >{{ $t('utilization.testSave') }}</el-button
-        >
+        <div class="datasource-footer">
+          <slot name="credential" />
+          <div>
+            <el-button @click="settings = false">{{ $t('common.cancel') }}</el-button>
+            <el-button
+              type="primary"
+              :loading="testing"
+              :disabled="!nodes.length"
+              @click="testAndEnable"
+              >{{ $t('utilization.testSave') }}</el-button
+            >
+          </div>
+        </div>
       </template>
     </el-dialog>
   </section>
@@ -424,8 +422,22 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 500;
 }
-.agent-setup-guide {
-  margin-left: 16px;
+.datasource-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.datasource-footer :slotted(.datasource-credential-link) {
+  margin-inline-end: auto;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+  text-underline-offset: 2px;
+}
+.datasource-footer :slotted(.datasource-credential-link:hover),
+.datasource-footer :slotted(.datasource-credential-link:focus-visible) {
+  color: var(--el-color-primary);
 }
 .setup-guide {
   display: inline-block;

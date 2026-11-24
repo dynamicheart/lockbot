@@ -1,5 +1,7 @@
 # Delegated Agent task-note reads
 
+> Historical design. The task-note audit credential routes have been retired.
+
 Issue [#56](https://github.com/dynamicheart/lockbot/issues/56) adds an explicit machine credential for an approved audit consumer. It does not extend an ordinary bot OP key. Detailed notes are untrusted user text, not instructions to the consumer.
 
 ## Authority and isolation

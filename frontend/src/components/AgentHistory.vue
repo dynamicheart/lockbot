@@ -51,8 +51,7 @@
           ><span v-if="row.public_task">{{ row.public_task }}</span
           ><small v-if="row.agent_label"
             >{{ $t('agentHistory.agentLabel') }} {{ row.agent_label }}</small
-          ><small v-if="row.purpose">{{ $t('agentHistory.noteLabel') }} {{ row.purpose }}</small
-          ><span v-if="!row.public_task && !row.agent_label && !row.purpose">—</span></template
+          ><span v-if="!row.public_task && !row.agent_label">—</span></template
         ></el-table-column
       >
       <el-table-column :label="$t('agentHistory.outcome')" min-width="150"
@@ -81,7 +80,6 @@ import api from '../utils/api'
 import { useActorDisplay } from '../utils/useFeishuDisplayNames'
 const props = defineProps({
   botId: { type: [Number, String], required: true },
-  includePrivate: { type: Boolean, default: false },
 })
 const { locale } = useI18n()
 const actorNames = useActorDisplay()
@@ -120,7 +118,7 @@ async function load() {
         cursor: cursors[page.value] || undefined,
         query: activeQuery.value,
         limit: 25,
-        include_private: props.includePrivate,
+        include_private: false,
       },
       signal: controller.signal,
     })
@@ -156,7 +154,7 @@ function previous() {
   load()
 }
 watch(
-  [() => props.botId, () => props.includePrivate],
+  () => props.botId,
   () => {
     query.value = ''
     reset()

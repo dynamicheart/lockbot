@@ -1,23 +1,23 @@
 <template>
   <div class="json-mapping-editor" :style="{ '--json-editor-rows': rows }">
     <div ref="host" />
-    <small :id="hintId">{{ $t('jsonEditor.tabHint') }}</small>
+    <small v-if="example" :id="hintId">{{ $t('jsonEditor.tabHint') }}</small>
   </div>
 </template>
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { Compartment, EditorState, EditorSelection } from '@codemirror/state'
-import { EditorView, keymap, placeholder } from '@codemirror/view'
+import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, insertNewlineAndIndent } from '@codemirror/commands'
 import { indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { json } from '@codemirror/lang-json'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
-  example: { type: String, required: true },
+  example: { type: String, default: '' },
   label: { type: String, required: true },
-  rows: { type: Number, default: 7 },
+  rows: { type: Number, default: 4 },
   disabled: Boolean,
 })
 const emit = defineEmits(['update:modelValue'])
@@ -33,7 +33,7 @@ const editing = () => [
 
 function insertExample(editor) {
   const { doc, readOnly } = editor.state
-  if (readOnly || doc.toString().trim()) return false
+  if (!props.example || readOnly || doc.toString().trim()) return false
   editor.dispatch({
     changes: { from: 0, to: doc.length, insert: props.example },
     selection: EditorSelection.cursor(0),
@@ -52,12 +52,11 @@ onMounted(() => {
       history(),
       syntaxHighlighting(defaultHighlightStyle),
       EditorView.lineWrapping,
-      placeholder(props.example),
       editable.of(editing()),
       EditorState.changeFilter.of((transaction) => transaction.newDoc.length <= 131072),
       EditorView.contentAttributes.of({
         'aria-label': props.label,
-        'aria-describedby': hintId,
+        ...(props.example ? { 'aria-describedby': hintId } : {}),
         spellcheck: 'false',
       }),
       keymap.of([
@@ -108,9 +107,6 @@ onBeforeUnmount(() => view?.destroy())
 }
 .json-mapping-editor :deep(.cm-focused) {
   outline: 1px solid var(--el-color-primary);
-}
-.json-mapping-editor :deep(.cm-placeholder) {
-  color: var(--el-text-color-placeholder);
 }
 .json-mapping-editor small {
   display: block;

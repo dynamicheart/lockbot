@@ -4,6 +4,9 @@ from collections import OrderedDict
 from dataclasses import replace
 from weakref import WeakSet
 
+from sqlalchemy.orm import object_session
+
+from lockbot.backend.app.feishu.labels import DisplayLabels
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
 from lockbot.backend.app.platform_applications.service import CredentialUnavailable, credentials_for, runtime_guard
 from lockbot.core.platforms.feishu import FeishuAPIError, FeishuClient
@@ -30,7 +33,7 @@ def application_client(app):
         secret = credentials_for(app)["app_secret"]
     except CredentialUnavailable:
         raise FeishuAPIError("Application credentials changed or are unavailable; refresh before retrying") from None
-    key = (app.app_id, hashlib.sha256(secret.encode()).hexdigest())
+    key = (app.app_id, hashlib.sha256(secret.encode()).hexdigest(), app.tenant_key, app.bot_open_id)
     with _clients_lock:
         if app.app_id in _credential_generations and _credential_generations[app.app_id] != key[1]:
             raise FeishuAPIError("Application credentials changed; refresh before retrying")
@@ -41,7 +44,12 @@ def application_client(app):
         _clients.move_to_end(key)
         while len(_clients) > 32:
             _clients.popitem(last=False)
-        return _clients[key]
+        client = _clients[key]
+    session = object_session(app)
+    if app.tenant_key and app.bot_open_id and session is not None:
+        store = DisplayLabels(app)
+        client.set_display_label_store(store, lambda: store.load(session))
+    return client
 
 
 def invalidate_application_clients(app_id, *, secret="", credential_guard=None):
@@ -83,11 +91,19 @@ def cached_bot_client(bot, db):
     try:
         app = _routed_application(bot, db)
         secret = credentials_for(app)["app_secret"]
-        key = (app.app_id, hashlib.sha256(secret.encode()).hexdigest())
+        key = (app.app_id, hashlib.sha256(secret.encode()).hexdigest(), app.tenant_key, app.bot_open_id)
     except (ValueError, InvalidToken):
         return None
     with _clients_lock:
-        return _clients.get(key)
+        client = _clients.get(key)
+    if client is not None or not app.tenant_key or not app.bot_open_id:
+        return client
+    store = DisplayLabels(app)
+    labels = store.load(db)
+    if any(labels.values()):
+        client = FeishuClient(app.app_id, "")
+        client.set_display_label_store(store, lambda: labels)
+    return client
 
 
 def decorate_log_actors(entries, client):

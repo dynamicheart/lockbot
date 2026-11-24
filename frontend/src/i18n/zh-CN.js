@@ -4,8 +4,39 @@ export default {
     invalidSyntax: 'JSON 格式有误，请检查括号、引号和逗号。',
   },
   nodeInformation: {
+    node: '节点',
+    collected: '采集时间',
+    perCard: '{memory}/卡',
+    notCollected: '未登记',
+    scope: { host: '宿主机', container: '容器', unknown: '范围未知' },
+    manualImport: '手动登记',
+    exampleLoginMethod: '通过集群跳板机 SSH 登录',
+    exampleLoginNote: '使用分配的集群账号',
     title: '节点信息',
     open: '配置节点信息',
+    help: '查看节点硬件和登录信息，或让 Agent 登记。',
+    configureCollector: '让 Agent 登记',
+    mapping: '节点信息 JSON',
+    importHint: '修改样例，或粘贴你的节点 JSON。',
+    previewChanges: '预览变更',
+    backToEdit: '返回编辑',
+    saved: '节点信息已保存。',
+    validationFailed: '请检查节点 ID、登录地址和硬件字段。',
+    errors: {
+      node: '节点「{node}」不在此机器人的配置中，请使用列表里的节点 ID。',
+      fields: '节点「{node}」包含未知字段或没有可登记的字段。',
+      login: '节点「{node}」的登录字段格式有误。',
+      mixedLogin: '节点「{node}」同时填写了 login 和独立登录字段，请保留一种格式。',
+      host: '节点「{node}」的 host 需要填写域名或 IP 地址。',
+      hostForIp: '节点「{node}」设置 ip 时，host 需要填写域名。',
+      ip: '节点「{node}」的 ip 需要填写有效的 IPv4 地址。',
+      port: '节点「{node}」的 port 需要填写 1–65535 的整数。',
+      method: '节点「{node}」的 method 需要填写 120 字以内的单行文本。',
+      note: '节点「{node}」的 note 需要填写 256 字以内的单行文本。',
+      hardware: '节点「{node}」的硬件需要填写卡型和正整数卡数，同一型号只登记一次。',
+      cardHardware: '按卡分配的机器人在卡片配置中设置卡型和数量。',
+      format: '请使用样例中的 version 和 nodes 结构，键名不能重复。',
+    },
   },
   nodeHardware: {
     title: '硬件信息',
@@ -53,8 +84,12 @@ export default {
     writeFailed: '无法确认保存结果，请重新打开检查。',
   },
   configurationCredentials: {
+    agentGuide: '采集与上传指南（AGENTS.md）',
+    configureWithAgent: '让 Agent 配置',
+    nodeInformation: '登记节点信息',
+    nodeInformationHint: '允许登记登录信息和上传硬件盘点。',
+    nodeInventory: '上传节点硬件',
     title: '配置凭证',
-    auditTab: '审计凭证',
     guideSelectTitle: '机器人管理员',
     guideSelect: '选好授权范围，私发凭证。',
     guideShareTitle: '维护 Agent',
@@ -66,7 +101,6 @@ export default {
     selectAllBots: '全选',
     clearBots: '清空选择',
     botLimitHint: '每个凭证最多授权 {count} 个机器人，请分批选择。',
-    nodeAccessHint: '允许登记节点的域名、IP 和 SSH 端口。',
     datasourceHint: '允许配置用于展示利用率的数据源和节点映射。',
     create: '创建配置凭证',
     empty: '暂无配置凭证',
@@ -256,6 +290,7 @@ export default {
     proxyDeployment: '使用服务器配置',
     proxyDirect: '直连',
     proxyCustom: '指定代理',
+    proxyAddresses: '每行一个 HTTP(S) 代理地址，最多 8 个。',
     proxyEffective: '当前生效',
     proxyTest: '测试已保存的 HTTP 连接',
     proxyHttpOk: 'HTTP 可用',
@@ -297,7 +332,6 @@ export default {
   },
   agentHistory: {
     agentLabel: 'Agent：',
-    noteLabel: '备注：',
     operations: { command: '执行命令', usage: { update: '更新用途', delete: '删除用途' } },
 
     resource: '资源',
@@ -371,7 +405,6 @@ export default {
     notConfigured: '未配置',
     remove: '移除',
     setupGuide: '接入文档',
-    agentSetupGuide: '交给 Agent 配置',
     adminHint:
       '为当前机器人统一配置。请准备数据源地址、指标名、标签及节点／设备映射；在当前浏览器验证并保存。不要保存共享数据源密钥。',
     testSave: '验证并保存',
@@ -430,7 +463,6 @@ export default {
     httpSource: 'HTTP 请求入口',
     allSources: '全部 HTTP 入口',
     live: '实时',
-    history: '历史',
     range: '时间范围',
     start: '开始时间',
     end: '结束时间',
@@ -467,6 +499,8 @@ export default {
 
     allBots: '全部有已验证请求的机器人',
     byCredential: '按凭证',
+    byAgentToken: '按 Agent 令牌',
+    groupBy: '分组方式',
     credential: '用户 / 调用类型',
     credentialKinds: {
       agent: 'Agent API',
@@ -782,8 +816,9 @@ export default {
   // === Bot List ===
   botList: {
     filterByPlatform: '按平台筛选',
-    agent_authorizations: 'Agent 有效授权',
-    agent_usage_registrations: '有效用途登记',
+    agent_tokens: 'Agent 令牌',
+    agent_requests_hour: 'Agent 访问（近 60 分钟）',
+    agent_operations_hour: 'Agent 操作（近 60 分钟）',
     title: '我的机器人',
     searchPlaceholder: '按名称搜索...',
     filterByStatus: '按状态筛选',
@@ -904,8 +939,6 @@ export default {
     agentAccessStats: '访问统计',
     agentOperations: '操作历史',
     agentAuthorizations: '授权记录',
-    notesScopeHelp:
-      '仅超级管理员可开启。临时展示当前操作历史中的 Agent 详细备注，读取会记录审计；离开此页后自动关闭。',
     authorizationAudit: '授权审计',
     config: '配置信息',
     status: '状态',
@@ -981,6 +1014,8 @@ export default {
   },
 
   personalWorkbench: {
+    retired: '个人资源台已下架',
+    retiredDescription: '请使用 LockBot CLI 查询、申请和管理资源。',
     title: '个人资源台',
     navigation: '主导航',
     myAllocations: '我的占用',
@@ -1021,16 +1056,15 @@ export default {
     summaryHelp: '授权按用户和机器人计数；多个 Agent 可共享授权。用途按当前有效的资源登记计数。',
     expandPurpose: '展开完整用途',
     statistics: 'Agent 统计',
-    platformStatistics: '平台 Agent 统计',
     active: '有效授权',
     history: '历史授权',
     all: '全部',
     expired: '已失效',
-    authorizations: '有效用户授权',
-    usageRegistrations: '当前用途登记',
+    tokens: 'Agent 令牌',
 
     title: 'Agent 访问情况',
-    description: '按用户授权汇总，共享 Key 的 Agent 合并计量。',
+    description: '统计每个 v2 令牌在本服务的访问，覆盖它授权的所有机器人。',
+    inactive: '无有效授权',
     empty: '暂无 Agent 访问记录',
     user: '用户 / 授权备注',
     labelHelp: '备注由调用方自述，不作为身份凭据。',
@@ -1068,6 +1102,10 @@ export default {
 
   // === Log Viewer ===
   log: {
+    category: '日志类型',
+    allCategories: '全部类型',
+    operationBadge: '操作',
+    summaryUnavailable: '无可显示的摘要',
     privateDetailsRestricted: '当前显示操作摘要。',
     all: '全部',
     commandLog: '操作记录',
@@ -1280,7 +1318,6 @@ export default {
 
   // === Audit Logs ===
   audit: {
-    includeReadEvents: '包含读取审计',
     title: '审计日志',
     operator: '操作人',
     role: '角色',
@@ -1304,8 +1341,6 @@ export default {
       '近期检测到 {count} 次登录失败，来自 IP：{ips}。如非本人操作，建议立即修改密码。',
     dispatched: '已分派',
     dispatchedNote: '命令已分派，不代表资源操作成功。请查询资源状态核实。',
-    privateView: '查看 Agent 详细任务备注',
-    privateViewHelp: '这里展示 Agent 主动提交的详细备注，仅本人及超级管理员可见。',
     targetTypes: {
       bot: '机器人',
       user: '用户',

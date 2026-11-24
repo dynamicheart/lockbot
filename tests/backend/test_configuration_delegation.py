@@ -1,6 +1,6 @@
 """Service-level coverage of user-issued, operation-scoped configuration credentials."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from lockbot.backend.app import main
@@ -15,6 +15,7 @@ from backend.test_bots import _sample_bot
 ISSUE = "/api/configuration-credentials"
 NODE = "node_access:write"
 SOURCE = "datasource:write"
+INVENTORY = "node_inventory:write"
 
 
 def bot(client, headers, name):
@@ -35,6 +36,116 @@ def access(bot_id):
 
 def preview(client, bot_id, headers, data):
     return client.post(access(bot_id) + "/preview", headers=headers, json=data).raise_for_status().json()
+
+
+def test_inventory_upload_uses_bot_scope_and_keeps_other_observations(client, auth_header, admin_header):
+    target = bot(client, auth_header, "inventory target")
+    other = bot(client, auth_header, "other")
+    key = bearer(credentials(client, auth_header, [target], [INVENTORY]).raise_for_status().json()["credential"])
+    snapshot = {
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "scope": "host",
+        "accelerators": [{"model": "Example Device", "count": 4, "memory_bytes_per_card": 96 * 2**30}],
+        "memory_bytes": 512 * 2**30,
+        "cpu_arch": "x86_64",
+    }
+
+    def proposal(node, record):
+        return {"scope": INVENTORY, "configuration": {"version": 1, "nodes": {node: record}}}
+
+    def upload(node, record):
+        body = proposal(node, record)
+        planned = preview(client, target, key, body)
+        assert client.put(access(target), json={**body, "receipt": planned["receipt"]}, headers=key).status_code == 200
+
+    assert client.get(access(other), headers=key).status_code == 403
+    assert (
+        client.post(access(target) + "/preview", headers=key, json={"scope": SOURCE, "configuration": None}).status_code
+        == 403
+    )
+    assert client.post(access(target) + "/preview", headers=key, json=proposal("unknown", snapshot)).status_code == 422
+    assert (
+        client.post(
+            access(target) + "/preview", headers=key, json=proposal("node1", {**snapshot, "private": 1})
+        ).status_code
+        == 422
+    )
+    upload("node1", snapshot)
+    upload("node2", snapshot)
+    upload("node1", {**snapshot, "cpu_arch": "ignored"})
+    route = f"/api/bots/{target}/node-inventory"
+    assert client.get(route, headers=admin_header).status_code == 403
+    doc = client.get(route, headers=auth_header).raise_for_status().json()
+    assert doc["node_ids"] == ["node1", "node2"]
+    assert set(doc["nodes"]) == {"node1", "node2"}
+    assert doc["nodes"]["node1"]["cpu_arch"] == "x86_64"
+    assert client.get("/api/public-docs/configuration/AGENTS.md").raise_for_status().text.count(INVENTORY) == 2
+
+
+def test_manual_node_json_saves_login_and_hardware_together(client, auth_header, admin_header):
+    target = bot(client, auth_header, "combined settings")
+    path = f"/api/bots/{target}/node-inventory"
+    login = {
+        "host": "node-01.example.test",
+        "ip": "192.0.2.41",
+        "port": 22,
+        "method": "SSH via bastion",
+        "note": "Use the assigned account",
+    }
+    hardware = [{"model": "Example Device", "count": 4}]
+    mapping = {"version": 1, "nodes": {"node1": login | {"hardware": hardware}}}
+
+    expected = {
+        "changes": {
+            "node1": {
+                "before": {"login": None, "hardware": []},
+                "after": {"login": login, "hardware": hardware},
+            }
+        }
+    }
+    assert client.post(path + "/preview", headers=auth_header, json=mapping).raise_for_status().json() == expected
+    assert client.patch(path, headers=admin_header, json=mapping).status_code == 403
+    invalid = {"version": 1, "nodes": {"node1": {"login": login, "hardware": [{"model": "bad", "count": 0}]}}}
+    assert client.patch(path, headers=auth_header, json=invalid).status_code == 422
+    mixed = {"version": 1, "nodes": {"node1": login | {"login": login}}}
+    response = client.patch(path, headers=auth_header, json=mixed)
+    assert response.status_code == 422 and response.json()["detail"]["field"] == "mixedLogin"
+    bad_port = {"version": 1, "nodes": {"node1": login | {"port": 65536}}}
+    response = client.post(path + "/preview", headers=auth_header, json=bad_port)
+    assert response.status_code == 422 and response.json()["detail"]["field"] == "port"
+    assert client.get(path, headers=auth_header).raise_for_status().json()["login_addresses"] == {}
+    assert client.patch(path, headers=auth_header, json=mapping).raise_for_status().json() == {"changed_nodes": 1}
+    document = client.get(path, headers=auth_header).raise_for_status().json()
+    assert document["login_addresses"] == {"node1": login}
+    assert document["registered_hardware"] == {"node1": hardware}
+
+    # Older address-only clients can update the address without dropping guidance.
+    address = {"host": "node-01.example.test", "port": 2222}
+    login_path = f"/api/bots/{target}/node-access"
+    client.put(login_path, headers=auth_header, json={"version": 1, "nodes": {"node1": address}}).raise_for_status()
+    assert client.get(login_path, headers=auth_header).json()["nodes"]["node1"] == address | {
+        "method": login["method"],
+        "note": login["note"],
+    }
+
+    # Clearing a note is explicit, and the remaining guidance is still preserved.
+    clear_note = {"version": 1, "nodes": {"node1": {"login": address | {"note": None}}}}
+    client.patch(path, headers=auth_header, json=clear_note).raise_for_status()
+    assert client.get(login_path, headers=auth_header).json()["nodes"]["node1"] == address | {"method": login["method"]}
+
+    removal = {"version": 1, "nodes": {"node1": {"host": None}}}
+    client.patch(path, headers=auth_header, json=removal).raise_for_status()
+    document = client.get(path, headers=auth_header).raise_for_status().json()
+    assert document["login_addresses"] == {}
+    assert document["registered_hardware"] == {"node1": hardware}
+
+
+def test_retired_task_note_credentials_have_no_routes(client, admin_header):
+    assert client.get("/api/admin/audit-credentials", headers=admin_header).status_code == 404
+    assert client.post("/api/admin/audit-credentials", headers=admin_header, json={}).status_code in {404, 405}
+    assert client.get("/api/audit/bots/1/task-notes", headers=admin_header).status_code == 404
+    assert client.get("/api/audit/bots/1/agent-history", headers=admin_header).status_code == 404
+    assert client.get("/api/audit/logs", headers=admin_header).status_code == 200
 
 
 def test_existing_credentials_survive_the_additive_deletion_migration(monkeypatch):

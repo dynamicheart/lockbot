@@ -27,7 +27,7 @@ def test_success_reply_spacing(bot_type, enabled, tmp_path, monkeypatch):
     monkeypatch.setattr(bot, "_current_usage", lambda key: "\nn1 alice 2.0 小时\nn2 空闲\n\n")
     expected = "✅【资源申请成功】\n\nn1 alice 2.0 小时\nn2 空闲"
     if enabled:
-        expected += "\n\nLockBot Skill 安装包：" + url
+        expected += "\n\n把链接发给你的 Agent，安装 LockBot Skill：" + url
     expected += "\n\n"
     reply = bot.adapter.build_reply(bot._msg_with_usage("success.resource_locked"), ["alice"])
     assert bot.adapter.extract_reply_text(reply) == expected
@@ -78,15 +78,15 @@ def test_queue_renewal_preserves_promotion_link_and_waiting_notice(tmp_path, mon
     reply = bot.lock("alice", "lock n1 1h")
     text = bot.adapter.extract_reply_text(reply)
     assert "请注意等待时间已增加" in text
-    assert "LockBot Skill 安装包：" + url in text
+    assert "把链接发给你的 Agent，安装 LockBot Skill：" + url in text
     assert {"type": "LINK", "href": url} in reply["message"]["body"]
 
 
 @pytest.mark.parametrize(
     "lang,default,prefix",
     [
-        ("zh", "LockBot Skill 安装包：", "交给你的 Agent："),
-        ("en", "LockBot Skill download: ", "Ask your Agent: "),
+        ("zh", "把链接发给你的 Agent，安装 LockBot Skill：", "交给你的 Agent："),
+        ("en", "Send this link to your Agent to install the LockBot Skill: ", "Ask your Agent: "),
     ],
 )
 def test_saved_prefix_updates_running_bot_and_preserves_link(

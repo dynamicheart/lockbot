@@ -101,7 +101,11 @@
         {{ $t('auth.registerDisabled') }}
         <span v-if="adminContact" class="admin-contact"> {{ adminContact }}</span>
       </p>
-      <a v-if="personalPanelUrl" :href="personalPanelUrl" class="personal-resource-entry">
+      <a
+        v-if="!personalPanelWebDisabled && personalPanelUrl"
+        :href="personalPanelUrl"
+        class="personal-resource-entry"
+      >
         <el-icon><Monitor /></el-icon><span>{{ $t('nav.myResources') }}</span>
         <el-icon><ArrowRight /></el-icon>
       </a>
@@ -139,6 +143,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { personalPanelWebDisabled } from '../utils/personalPanelWeb'
 import { User, Lock, ArrowRight, Monitor } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'

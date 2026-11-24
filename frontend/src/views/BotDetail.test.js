@@ -334,25 +334,21 @@ it('aborts reads and blocks deferred confirmations and redirects after unmount',
   expect(model.router.push).not.toHaveBeenCalled()
 })
 
-it('does not accept an old summary or generated key when the same ID is revisited', async () => {
+it('does not accept an old generated key when the same ID is revisited', async () => {
   const view = mount()
   await ready()
-  const summary = view.loadAgentSummary(),
-    oldSummary = latest('get', '/bots/1/agent-summary')
   const key = view.handleGenerateApiKey(),
     oldKey = latest('post', '/bots/1/api-key')
   model.route.params.id = '2'
   await ready('2')
   model.route.params.id = '1'
   await ready('1', '-revisited')
-  oldSummary.resolve({ authorizations: 999 })
   oldKey.resolve({ api_key: 'fictional-old-key' })
-  await Promise.all([summary, key])
+  await key
   await flush()
   expect(view.bot.name).toBe('fixture-1-revisited')
   expect(view.bot.view_url).not.toBe('fictional-old-view')
   expect(view.bot.api_key).toBe('fictional-key-1-revisited')
-  expect(view.agentSummary).toBe(null)
 })
 
 it.each([
@@ -386,38 +382,16 @@ it.each([
   expect(model.router.push).not.toHaveBeenCalled()
 })
 
-it('limits detailed-note consent to Agent operation history and never changes state reads', async () => {
+it('uses public state reads from Agent history and when navigating to another bot', async () => {
   const view = mount()
   await ready('1')
   view.activityTab = 'agents'
   view.agentTab = 'history'
-  view.showPrivateTasks = true
-  expect(view.privateTaskView).toBe(true)
   const pending = view.fetchState()
   expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(false)
   latest('state', '1').resolve({ state: {}, usage: [] })
   await pending
-  view.agentTab = 'access'
-  expect(view.showPrivateTasks).toBe(false)
-  expect(view.privateTaskView).toBe(false)
-  view.agentTab = 'history'
-  expect(view.privateTaskView).toBe(false)
-})
-
-it('clears detailed-note consent when leaving Agent history or navigating bots', async () => {
-  const view = mount()
-  await ready('1')
-  view.activityTab = 'agents'
-  view.agentTab = 'history'
-  view.showPrivateTasks = true
-  view.activityTab = 'logs'
-  expect(view.showPrivateTasks).toBe(false)
-  view.activityTab = 'agents'
-  view.agentTab = 'history'
-  view.showPrivateTasks = true
   model.route.params.id = '2'
-  expect(view.showPrivateTasks).toBe(false)
-  expect(view.privateTaskView).toBe(false)
   expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(false)
   expect(view.stateUsage).toEqual([])
 })

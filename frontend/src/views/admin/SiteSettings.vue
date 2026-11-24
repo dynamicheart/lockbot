@@ -113,8 +113,13 @@
             <el-input
               v-if="form.feishu_proxy_mode === 'custom'"
               v-model="form.feishu_proxy_url"
-              placeholder="http://proxy.example:8188"
+              type="textarea"
+              :autosize="{ minRows: 4, maxRows: 8 }"
+              :aria-label="$t('feishu.proxy')"
             />
+            <div v-if="form.feishu_proxy_mode === 'custom'" class="platform-hint">
+              {{ $t('feishu.proxyAddresses') }}
+            </div>
             <div class="proxy-effective platform-hint">
               {{ $t('feishu.proxyEffective') }}:
               {{
@@ -161,7 +166,7 @@
             <el-input
               v-model="form.agent_promotion_text_zh"
               :maxlength="120"
-              placeholder="让 Agent 安装 Skill："
+              placeholder="把链接发给你的 Agent，安装 LockBot Skill："
               clearable
               style="margin-bottom: 8px"
             >
@@ -170,7 +175,7 @@
             <el-input
               v-model="form.agent_promotion_text_en"
               :maxlength="120"
-              placeholder="Install this Skill with your Agent: "
+              placeholder="Send this link to your Agent to install the LockBot Skill: "
               clearable
             >
               <template #prepend>English</template>

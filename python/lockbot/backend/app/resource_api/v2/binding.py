@@ -81,6 +81,7 @@ def require_principal(request: Request, db: Session) -> PersonalCredential:
     principal = authenticate(db, request.headers.get("Authorization", ""))
     if principal is None:
         raise api_error("credential_invalid", 401)
+    request.state.v2_activity_principal = principal.public_id
     return principal
 
 

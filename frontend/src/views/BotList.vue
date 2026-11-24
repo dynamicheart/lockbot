@@ -7,76 +7,67 @@
       <el-icon class="stats-arrow" :class="{ expanded: showPlatformStats }"><ArrowDown /></el-icon>
     </div>
     <el-collapse-transition>
-      <el-row v-show="showPlatformStats" :gutter="16" class="platform-stats-row">
-        <el-col :xs="8" :sm="6">
-          <div class="platform-stat-card">
-            <div class="platform-stat-value">
-              {{ platformStats.total_users }}
+      <div v-show="showPlatformStats">
+        <el-row :gutter="16" class="platform-stats-row">
+          <el-col :xs="8" :sm="6">
+            <div class="platform-stat-card">
+              <div class="platform-stat-value">
+                {{ platformStats.total_users }}
+              </div>
+              <div class="platform-stat-label">
+                {{ $t('botList.platformUsers') }}
+              </div>
             </div>
-            <div class="platform-stat-label">
-              {{ $t('botList.platformUsers') }}
+          </el-col>
+          <el-col :xs="8" :sm="6">
+            <div class="platform-stat-card">
+              <div class="platform-stat-value">
+                {{ platformStats.total_bots }}
+              </div>
+              <div class="platform-stat-label">
+                {{ $t('botList.platformBots') }}
+              </div>
             </div>
-          </div>
-        </el-col>
-        <el-col :xs="8" :sm="6">
-          <div class="platform-stat-card">
-            <div class="platform-stat-value">
-              {{ platformStats.total_bots }}
+          </el-col>
+          <el-col :xs="8" :sm="6">
+            <div class="platform-stat-card">
+              <div class="platform-stat-value success">
+                {{ platformStats.running_bots }}
+              </div>
+              <div class="platform-stat-label">
+                {{ $t('botList.platformRunning') }}
+              </div>
             </div>
-            <div class="platform-stat-label">
-              {{ $t('botList.platformBots') }}
+          </el-col>
+          <el-col :xs="24" :sm="6">
+            <div class="platform-stat-card quota-card">
+              <div class="quota-header">{{ $t('botList.myQuota') }}</div>
+              <div class="quota-value">
+                <template v-if="!authStore.isAdmin && authStore.user?.max_running_bots">
+                  {{
+                    $t('botList.quotaUsage', {
+                      running: stats.running,
+                      max: authStore.user.max_running_bots,
+                    })
+                  }}
+                </template>
+                <template v-else>
+                  {{ $t('botList.quotaUnlimited') }}
+                </template>
+              </div>
             </div>
-          </div>
-        </el-col>
-        <el-col :xs="8" :sm="6">
-          <div class="platform-stat-card">
-            <div class="platform-stat-value success">
-              {{ platformStats.running_bots }}
+          </el-col>
+        </el-row>
+        <el-row :gutter="16" class="platform-stats-row">
+          <el-col v-for="metric in agentMetrics" :key="metric" :xs="12" :sm="6">
+            <div class="platform-stat-card">
+              <div class="platform-stat-value">{{ platformStats[metric] ?? '—' }}</div>
+              <div class="platform-stat-label">{{ $t(`botList.${metric}`) }}</div>
             </div>
-            <div class="platform-stat-label">
-              {{ $t('botList.platformRunning') }}
-            </div>
-          </div>
-        </el-col>
-        <el-col :xs="24" :sm="6">
-          <div class="platform-stat-card quota-card">
-            <div class="quota-header">{{ $t('botList.myQuota') }}</div>
-            <div class="quota-value">
-              <template v-if="!authStore.isAdmin && authStore.user?.max_running_bots">
-                {{
-                  $t('botList.quotaUsage', {
-                    running: stats.running,
-                    max: authStore.user.max_running_bots,
-                  })
-                }}
-              </template>
-              <template v-else>
-                {{ $t('botList.quotaUnlimited') }}
-              </template>
-            </div>
-          </div>
-        </el-col>
-      </el-row>
+          </el-col>
+        </el-row>
+      </div>
     </el-collapse-transition>
-
-    <h3 class="agent-stats-heading" :title="$t('agentActivity.summaryHelp')">
-      {{ $t('agentActivity.platformStatistics') }}
-    </h3>
-    <el-row :gutter="16" class="platform-stats-row">
-      <el-col
-        v-for="metric in ['agent_authorizations', 'agent_usage_registrations']"
-        :key="metric"
-        :xs="12"
-        :sm="12"
-      >
-        <div class="platform-stat-card">
-          <div class="platform-stat-value">
-            {{ platformStats[metric] ?? '—' }}
-          </div>
-          <div class="platform-stat-label">{{ $t(`botList.${metric}`) }}</div>
-        </div>
-      </el-col>
-    </el-row>
 
     <!-- Stats panel (toggleable) -->
     <div class="stats-toggle" @click="showStats = !showStats">
@@ -229,8 +220,9 @@
                   size="small"
                   effect="plain"
                   class="group-tag"
+                  :title="gid"
                   @click="copyText(gid)"
-                  >{{ gid }}</el-tag
+                  >{{ row.group_name || gid }}</el-tag
                 >
                 <el-tag
                   v-if="row.group_id.split(',').length > 2"
@@ -301,6 +293,7 @@ const { formatDate, formatRelativeTime, copyText } = useHelpers()
 const botsStore = useBotsStore()
 const authStore = useAuthStore()
 const platformStats = ref({ total_users: 0, total_bots: 0, running_bots: 0 })
+const agentMetrics = ['agent_tokens', 'agent_requests_hour', 'agent_operations_hour']
 const search = ref('')
 const statusFilter = ref('running')
 const typeFilter = ref('')
@@ -384,16 +377,12 @@ function getUsageText(row) {
 </script>
 
 <style scoped>
-.agent-stats-heading {
-  margin: 16px 0 12px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--lb-text-regular);
-}
 .platform-stats-row {
   margin-bottom: 20px;
 }
 .platform-stat-card {
+  box-sizing: border-box;
+  height: 100%;
   text-align: center;
   padding: 12px 16px;
   border-radius: 8px;
@@ -401,15 +390,15 @@ function getUsageText(row) {
   border: 1px solid var(--lb-border-light);
 }
 .platform-stat-value {
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 28px;
+  font-weight: 700;
   color: var(--lb-text-primary);
 }
 .platform-stat-value.success {
   color: var(--lb-color-success);
 }
 .platform-stat-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--lb-text-secondary);
   margin-top: 4px;
 }
@@ -429,9 +418,14 @@ function getUsageText(row) {
   color: var(--lb-color-primary);
 }
 .group-tag {
+  max-width: 100%;
   cursor: pointer;
   margin-right: 4px;
   margin-bottom: 2px;
+}
+.group-tag :deep(.el-tag__content) {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .stats-toggle {
   display: flex;

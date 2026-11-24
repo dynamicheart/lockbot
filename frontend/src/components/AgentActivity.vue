@@ -5,9 +5,22 @@
         <h3 v-if="!hideHeading">{{ t('agentActivity.title') }}</h3>
         <p>{{ t('agentActivity.description') }}</p>
       </div>
-      <el-button size="small" :loading="loading" @click="refresh">
-        <el-icon><Refresh /></el-icon> {{ t('common.refresh') }}
-      </el-button>
+      <div class="activity-controls">
+        <el-select
+          v-model="status"
+          size="small"
+          class="authorization-filter"
+          :aria-label="t('agentActivity.authorization')"
+          @change="changeFilter"
+        >
+          <el-option value="active" :label="t('agentActivity.active')" />
+          <el-option value="history" :label="t('agentActivity.history')" />
+          <el-option value="all" :label="t('agentActivity.all')" />
+        </el-select>
+        <el-button size="small" :loading="loading" @click="refresh">
+          <el-icon><Refresh /></el-icon> {{ t('common.refresh') }}
+        </el-button>
+      </div>
     </div>
     <el-alert
       v-if="error"
@@ -18,16 +31,6 @@
       class="activity-error"
     />
     <div v-loading="loading" :aria-busy="loading">
-      <el-radio-group
-        v-model="status"
-        size="small"
-        style="margin-bottom: 16px"
-        @change="changeFilter"
-      >
-        <el-radio-button value="active">{{ t('agentActivity.active') }}</el-radio-button>
-        <el-radio-button value="history">{{ t('agentActivity.history') }}</el-radio-button>
-        <el-radio-button value="all">{{ t('agentActivity.all') }}</el-radio-button>
-      </el-radio-group>
       <el-table
         :data="items"
         :empty-text="t('agentActivity.empty')"
@@ -43,9 +46,7 @@
             </div>
             <div class="actor-note">
               <span>{{ platformLabel(row.platform, $t) }}</span>
-              <el-tooltip :content="t('agentActivity.labelHelp')" placement="top">
-                <span class="authorization-label">{{ row.label || '—' }}</span>
-              </el-tooltip>
+              <span v-if="row.version">{{ row.version }}</span>
             </div>
           </template>
         </el-table-column>
@@ -56,9 +57,9 @@
                 t(
                   row.active
                     ? 'agentActivity.active'
-                    : row.revoked
-                      ? 'agentActivity.revoked'
-                      : 'agentActivity.expired'
+                    : row.expired
+                      ? 'agentActivity.expired'
+                      : 'agentActivity.inactive'
                 )
               }}
             </el-tag>
@@ -78,7 +79,7 @@
                 'count-zero': !row[metric.key],
                 'count-warning': metric.warning && row[metric.key] > 0,
               }"
-              >{{ number(row[metric.key]) }}</span
+              >{{ row[metric.key] == null ? '—' : number(row[metric.key]) }}</span
             >
           </template>
         </el-table-column>
@@ -111,19 +112,14 @@
 
 <script setup>
 import { platformLabel } from '../utils/platformDisplay'
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { useActorDisplay } from '../utils/useFeishuDisplayNames'
 import { formatActivityTime } from '../utils/activityDisplay'
 
-const props = defineProps({
-  hideHeading: { type: Boolean, default: false },
-  botId: { type: Number, required: true },
-  includePrivate: { type: Boolean, default: false },
-})
-const emit = defineEmits(['updated'])
+defineProps({ hideHeading: Boolean })
 const { t, locale } = useI18n()
 const actorNames = useActorDisplay()
 const items = ref([])
@@ -149,18 +145,16 @@ async function refresh() {
   loading.value = true
   error.value = false
   try {
-    const { data } = await api.get(`/bots/${props.botId}/agent-activity`, {
+    const { data } = await api.get('/admin/agent-activity', {
       params: {
         status: status.value,
         page: page.value,
         limit: 20,
-        include_private: props.includePrivate,
       },
     })
     if (current === generation) {
       items.value = data.items
       total.value = data.total
-      emit('updated')
     }
   } catch {
     if (current === generation) error.value = true
@@ -169,16 +163,6 @@ async function refresh() {
   }
 }
 onMounted(refresh)
-watch(
-  [() => props.botId, () => props.includePrivate],
-  () => {
-    items.value = []
-    total.value = 0
-    page.value = 1
-    refresh()
-  },
-  { flush: 'sync' }
-)
 onBeforeUnmount(() => generation++)
 </script>
 
@@ -191,7 +175,16 @@ onBeforeUnmount(() => generation++)
   gap: 16px;
 }
 .activity-toolbar {
+  flex-wrap: wrap;
   margin: 6px 0 20px;
+}
+.activity-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.authorization-filter {
+  width: 126px;
 }
 .activity-toolbar h3 {
   margin: 0 0 6px;
