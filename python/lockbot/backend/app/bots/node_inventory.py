@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from lockbot.backend.app.bots.node_hardware import WHOLE_MACHINE_TYPES, saved_node_hardware
 
@@ -18,6 +18,13 @@ class AcceleratorInventory(BaseModel):
     model: ShortText
     count: int = Field(strict=True, ge=1, le=256)
     memory_bytes_per_card: ByteCount | None = None
+
+    @field_validator("model")
+    @classmethod
+    def printable_model(cls, model):
+        if not model.isprintable():
+            raise ValueError("Invalid accelerator model")
+        return model
 
 
 class NodeInventory(BaseModel):
