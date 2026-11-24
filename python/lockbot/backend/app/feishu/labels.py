@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, object_session
@@ -72,37 +72,49 @@ class DisplayLabels:
             logger.warning("Could not save Feishu display names")
 
 
-def bot_group_names(db, bots):
+def bot_display_names(db, bots):
+    """Read the selected groups and last active users in one local query."""
     ids = [bot.id for bot in bots if str(bot.platform).lower() == "feishu" and bot.group_id]
     if not ids:
         return {}
-    return dict(
-        db.execute(
-            select(Bot.id, FeishuDisplayLabel.name)
-            .join(FeishuGroupRoute, and_(FeishuGroupRoute.bot_id == Bot.id, FeishuGroupRoute.chat_id == Bot.group_id))
-            .join(FeishuApplication, FeishuApplication.id == FeishuGroupRoute.application_id)
-            .join(
-                FeishuDisplayLabel,
-                and_(
-                    FeishuDisplayLabel.application_id == FeishuApplication.id,
-                    FeishuDisplayLabel.app_id == FeishuApplication.app_id,
-                    FeishuDisplayLabel.tenant_key == FeishuApplication.tenant_key,
-                    FeishuDisplayLabel.bot_open_id == FeishuApplication.bot_open_id,
-                    FeishuDisplayLabel.kind == "group",
-                    FeishuDisplayLabel.external_id == FeishuGroupRoute.chat_id,
+    names = {}
+    fields = {"group": "group_name", "user": "last_user_display_name"}
+    rows = db.execute(
+        select(Bot.id, FeishuDisplayLabel.kind, FeishuDisplayLabel.name)
+        .join(FeishuGroupRoute, and_(FeishuGroupRoute.bot_id == Bot.id, FeishuGroupRoute.chat_id == Bot.group_id))
+        .join(FeishuApplication, FeishuApplication.id == FeishuGroupRoute.application_id)
+        .join(
+            FeishuDisplayLabel,
+            and_(
+                FeishuDisplayLabel.application_id == FeishuApplication.id,
+                FeishuDisplayLabel.app_id == FeishuApplication.app_id,
+                FeishuDisplayLabel.tenant_key == FeishuApplication.tenant_key,
+                FeishuDisplayLabel.bot_open_id == FeishuApplication.bot_open_id,
+                or_(
+                    and_(
+                        FeishuDisplayLabel.kind == "group",
+                        FeishuDisplayLabel.external_id == FeishuGroupRoute.chat_id,
+                    ),
+                    and_(
+                        FeishuDisplayLabel.kind == "user",
+                        FeishuDisplayLabel.external_id == Bot.last_user_id,
+                    ),
                 ),
-            )
-            .where(Bot.id.in_(ids))
+            ),
+        )
+        .where(Bot.id.in_(ids))
+        .where(
+            ~select(FeishuGroupMembership.application_id)
             .where(
-                ~select(FeishuGroupMembership.application_id)
-                .where(
-                    FeishuGroupMembership.application_id == FeishuApplication.id,
-                    FeishuGroupMembership.chat_id == FeishuGroupRoute.chat_id,
-                    FeishuGroupMembership.app_id == FeishuApplication.app_id,
-                    FeishuGroupMembership.tenant_key == FeishuApplication.tenant_key,
-                    FeishuGroupMembership.status == "removed",
-                )
-                .exists()
+                FeishuGroupMembership.application_id == FeishuApplication.id,
+                FeishuGroupMembership.chat_id == FeishuGroupRoute.chat_id,
+                FeishuGroupMembership.app_id == FeishuApplication.app_id,
+                FeishuGroupMembership.tenant_key == FeishuApplication.tenant_key,
+                FeishuGroupMembership.status == "removed",
             )
-        ).all()
+            .exists()
+        )
     )
+    for bot_id, kind, name in rows:
+        names.setdefault(bot_id, {})[fields[kind]] = name
+    return names

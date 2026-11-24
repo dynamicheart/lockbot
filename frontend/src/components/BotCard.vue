@@ -28,8 +28,8 @@
       <span v-else class="usage-label">-</span>
     </div>
     <div class="card-footer">
-      <span v-if="bot.last_user_id" class="last-active">
-        {{ $t('botCard.lastActive') }}: {{ bot.last_user_id }}
+      <span v-if="bot.last_user_id" class="last-active" :title="bot.last_user_id">
+        {{ $t('botCard.lastActive') }}: {{ bot.last_user_display_name || bot.last_user_id }}
       </span>
       <span v-if="bot.group_id" class="group-ids" @click.stop>
         <el-tag
@@ -39,7 +39,7 @@
           effect="plain"
           class="group-tag"
           @click="copyText(gid)"
-          >{{ gid }}</el-tag
+          >{{ bot.group_name || gid }}</el-tag
         >
       </span>
     </div>

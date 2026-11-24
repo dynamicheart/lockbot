@@ -406,11 +406,11 @@ def list_bots(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from lockbot.backend.app.feishu.labels import bot_group_names
+    from lockbot.backend.app.feishu.labels import bot_display_names
 
     bots = db.query(Bot).filter(Bot.user_id == user.id, Bot.is_deleted.is_(False)).all()
-    names = bot_group_names(db, bots)
-    return [BotOut.model_validate(bot).model_copy(update={"group_name": names.get(bot.id)}) for bot in bots]
+    names = bot_display_names(db, bots)
+    return [BotOut.model_validate(bot).model_copy(update=names.get(bot.id, {})) for bot in bots]
 
 
 @router.post("", response_model=BotOut, status_code=status.HTTP_201_CREATED)
