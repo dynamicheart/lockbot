@@ -1,5 +1,6 @@
+/* eslint-disable vue/one-component-per-file -- Stubs render the real handoff template. */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { createRenderer, createSSRApp, nextTick, ssrContextKey } from 'vue'
+import { createRenderer, createSSRApp, h, nextTick, ssrContextKey } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import { createI18n } from 'vue-i18n'
 import Handoff from './PersonalConnectionHandoff.vue'
@@ -90,10 +91,18 @@ function rendered() {
   installI18n(view)
   view.component('ElDialog', {
     inheritAttrs: false,
-    props: ['modelValue'],
-    setup: (props, { slots }) => () => (props.modelValue ? slots.default?.() : null),
+    props: { modelValue: Boolean },
+    setup:
+      (props, { slots }) =>
+      () =>
+        props.modelValue ? slots.default?.() : null,
   })
-  view.component('ElButton', { setup: (_, { slots }) => () => slots.default?.() })
+  view.component('ElButton', {
+    setup:
+      (_, { slots }) =>
+      () =>
+        h('button', slots.default?.()),
+  })
   return renderToString(view)
 }
 beforeEach(() => {
@@ -150,9 +159,9 @@ it('lists confirmed credentials directly and copies all connections without keys
   expect(markup).toContain('Group two')
   expect(markup).not.toContain('个绑定群')
   expect(markup).not.toContain('内容不含 Key')
-  expect(markup).toContain('复制全部状态')
-  expect(markup).toContain('Agent 接入说明')
-  expect(markup).not.toContain('复制接入说明')
+  expect(markup).toContain('复制全部接入说明')
+  expect(markup).toContain('接入 Agent')
+  expect(markup).not.toContain(first.instructions)
   await state.copyAllStatus()
   expect(clipboard).toHaveBeenCalledTimes(1)
   const message = clipboard.mock.calls[0][0]
@@ -172,12 +181,16 @@ it('copies only a purpose-specific request to the original Agent when native vie
     issue_path: '/api/personal-panel/credential-view-links',
   }
   fetchMock.mockImplementation(async (url) =>
-    response(url.endsWith('/capabilities') ? caps : list([{ ...row(), credential_recovery_health: 'recoverable' }]))
+    response(
+      url.endsWith('/capabilities')
+        ? caps
+        : list([{ ...row(), credential_recovery_health: 'recoverable' }])
+    )
   )
   mount()
   await flush()
   expect(state.viewSupported).toBe(true)
-  expect(await rendered()).toContain('获取 Key 查看链接')
+  expect(await rendered()).toContain('请求查看 Key')
   state.openDetails(state.items[0], true)
   expect(await rendered()).toContain('复制查看请求')
   expect(clipboard).not.toHaveBeenCalled()
@@ -314,8 +327,9 @@ it('does not infer native credential authority when an identity provider lacks t
   expect(fetchMock).toHaveBeenCalledTimes(1)
   expect(state.items).toEqual([])
   const markup = await rendered()
-  expect(markup).toContain('暂无可管理的机器群 Key')
-  expect(markup).not.toContain('Agent 凭证列表')
+  expect(markup).toContain('请让原 Agent 检查连接')
+  expect(markup).not.toContain('请求查看 Key')
+  expect(markup).not.toContain('添加资源群')
 })
 it.each([
   'https://different.example.test/api/agent/v2/skill/lockbot.zip',
@@ -385,21 +399,55 @@ it('copies only a public instruction through the private-HTTP clipboard fallback
   expect(element.value).not.toContain(SECRET)
   expect(document.execCommand).toHaveBeenCalledWith('copy')
   expect(document.body.removeChild).toHaveBeenCalledWith(element)
-  expect(state.feedback).toContain('已复制无 Key 说明')
+  expect(state.feedback).toContain('已复制，发给 Agent 即可')
 })
 
 const FOREIGN = 'https://resource.example.test'
-const foreignSkill = () => Object.fromEntries(Object.entries(skill()).map(([key, value]) => [key, typeof value === 'string' ? value.replace(ORIGIN, FOREIGN) : value]))
-const metadataCaps = () => ({ connection_management: { version: 2, metadata_available: true, refresh_semantics: 'revalidate_only', credential_disclosure_supported: false } })
-const metadataList = () => ({ schema_version: 2, service_pins: [{ origin: FOREIGN, instance_id: 'fixture-instance', service_id: 'lockbot.resource-api', api_version: '1' }], connections: [{ ...row(), service_origin: FOREIGN, skill: foreignSkill(), instructions: row().instructions.replaceAll(ORIGIN, FOREIGN), recovery_instructions: guide().replaceAll(ORIGIN, FOREIGN) }] })
+const foreignSkill = () =>
+  Object.fromEntries(
+    Object.entries(skill()).map(([key, value]) => [
+      key,
+      typeof value === 'string' ? value.replace(ORIGIN, FOREIGN) : value,
+    ])
+  )
+const metadataCaps = () => ({
+  connection_management: {
+    version: 2,
+    metadata_available: true,
+    refresh_semantics: 'revalidate_only',
+    credential_disclosure_supported: false,
+  },
+})
+const metadataList = () => ({
+  schema_version: 2,
+  service_pins: [
+    {
+      origin: FOREIGN,
+      instance_id: 'fixture-instance',
+      service_id: 'lockbot.resource-api',
+      api_version: '1',
+    },
+  ],
+  connections: [
+    {
+      ...row(),
+      service_origin: FOREIGN,
+      skill: foreignSkill(),
+      instructions: row().instructions.replaceAll(ORIGIN, FOREIGN),
+      recovery_instructions: guide().replaceAll(ORIGIN, FOREIGN),
+    },
+  ],
+})
 
 it('validates an authenticated metadata-only service pin and copies only its source instructions', async () => {
-  fetchMock.mockResolvedValueOnce(response(metadataCaps())).mockResolvedValueOnce(response(metadataList()))
+  fetchMock
+    .mockResolvedValueOnce(response(metadataCaps()))
+    .mockResolvedValueOnce(response(metadataList()))
   mount()
   await flush()
   expect(state.items).toHaveLength(1)
-  expect(await rendered()).toContain('Key 暂不可查看')
-  expect(await rendered()).toContain('复制全部状态')
+  expect(await rendered()).not.toContain('请求查看 Key')
+  expect(await rendered()).toContain('复制全部接入说明')
   state.openDetails(state.items[0], true)
   const help = await rendered()
   expect(state.detailsOpen).toBe(false)
@@ -410,16 +458,67 @@ it('validates an authenticated metadata-only service pin and copies only its sou
   expect(clipboard.mock.calls[0][0]).not.toContain(SECRET)
 })
 
-it.each(['missing-pin', 'instance', 'foreign-path', 'secret'])('rejects unpinned or unsafe metadata: %s', async (change) => {
-  const data = metadataList()
-  if (change === 'missing-pin') data.service_pins[0].origin = 'https://other.example.test'
-  if (change === 'instance') data.connections[0].instance_id = 'other-instance'
-  if (change === 'foreign-path') data.connections[0].skill.bundle_url = FOREIGN + '/not-the-skill'
-  if (change === 'secret') data.connections[0].instructions += SECRET
-  fetchMock.mockResolvedValueOnce(response(metadataCaps())).mockResolvedValueOnce(response(data))
+it.each(['missing-pin', 'instance', 'foreign-path', 'secret'])(
+  'rejects unpinned or unsafe metadata: %s',
+  async (change) => {
+    const data = metadataList()
+    if (change === 'missing-pin') data.service_pins[0].origin = 'https://other.example.test'
+    if (change === 'instance') data.connections[0].instance_id = 'other-instance'
+    if (change === 'foreign-path') data.connections[0].skill.bundle_url = FOREIGN + '/not-the-skill'
+    if (change === 'secret') data.connections[0].instructions += SECRET
+    fetchMock.mockResolvedValueOnce(response(metadataCaps())).mockResolvedValueOnce(response(data))
+    mount()
+    await flush()
+    expect(state.items).toEqual([])
+    expect(state.error).toBeTruthy()
+    expect(clipboard).not.toHaveBeenCalled()
+  }
+)
+
+it('adds a group through an explicit public instruction without issuing or disclosing credentials', async () => {
   mount()
   await flush()
-  expect(state.items).toEqual([])
-  expect(state.error).toBeTruthy()
+  const before = fetchMock.mock.calls.length
+  expect(await rendered()).toContain('添加资源群')
+  expect(await rendered()).not.toContain('请求查看 Key')
+  await state.copyAddRequest()
+  expect(clipboard).toHaveBeenCalledWith('打开个人资源台')
+  expect(fetchMock).toHaveBeenCalledTimes(before)
+  expect(state.viewSupported).toBe(false)
+  expect(state.rotationSupported).toBe(false)
+})
+
+it('keeps handoff instructions behind disclosure while copying the original scoped text without requests', async () => {
+  mount()
+  await flush()
+  const before = fetchMock.mock.calls.length
+  const item = state.items[0]
+  state.openDetails(item)
+  expect(state.instructionsVisible).toBe(false)
+  expect(await rendered()).not.toContain('textarea')
   expect(clipboard).not.toHaveBeenCalled()
+  state.instructionsVisible = true
+  expect(await rendered()).toContain('textarea')
+  await state.copyInstructions(item)
+  expect(clipboard).toHaveBeenCalledWith(row().instructions)
+  expect(fetchMock).toHaveBeenCalledTimes(before)
+  state.openDetails(item)
+  expect(state.instructionsVisible).toBe(false)
+})
+
+it('does not offer an unavailable add flow for an empty metadata-only provider', async () => {
+  fetchMock
+    .mockResolvedValueOnce(response(metadataCaps()))
+    .mockResolvedValueOnce(response({ ...metadataList(), connections: [] }))
+  mount()
+  await flush()
+  const markup = await rendered()
+  expect(state.supported).toBe(true)
+  expect(state.skill).toBeNull()
+  expect(markup).not.toContain('添加资源群')
+  expect(markup).toContain('请让原 Agent 检查连接')
+  expect(clipboard).not.toHaveBeenCalled()
+  expect(
+    fetchMock.mock.calls.every(([, options]) => !options.method || options.method === 'GET')
+  ).toBe(true)
 })

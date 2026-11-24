@@ -1,18 +1,30 @@
 <template>
   <section v-if="authenticated || supported || loading || error" class="native-connections">
     <div v-if="authenticated" class="connection-toolbar">
+      <p class="scope">{{ $t('personalCredentialActions.introduction') }}</p>
       <div class="credential-actions">
-        <button
+        <el-button
+          v-if="skill"
+          class="connection-button"
+          type="primary"
+          @click="addGroupOpen = true"
+        >
+          <Plus class="action-icon" aria-hidden="true" />{{
+            $t('personalCredentialActions.addGroup')
+          }}
+        </el-button>
+        <el-button class="connection-button" :disabled="loading" @click="refresh">
+          <Refresh class="action-icon" aria-hidden="true" />{{ $t('common.refresh') }}
+        </el-button>
+        <el-button
           v-if="items.length"
-          class="connection-button primary"
+          class="connection-button"
+          link
           :disabled="loading"
           @click="copyAllStatus"
         >
           {{ $t('personalCredentialActions.copyAllStatus') }}
-        </button>
-        <button v-if="authenticated" class="connection-button" :disabled="loading" @click="refresh">
-          刷新状态
-        </button>
+        </el-button>
         <span v-if="feedbackTarget === 'all'" class="copy-status" role="status">{{
           feedback
         }}</span>
@@ -22,14 +34,20 @@
     <p v-if="error" role="alert" class="connection-warning">{{ error }}</p>
     <p v-if="unavailable" class="connection-warning">部分绑定已失效或不可用。</p>
     <p v-if="!items.length && authenticated && !error && !loading" class="scope">
-      暂无可管理的机器群 Key。请通过该群已绑定的 Agent 添加凭证。
+      {{
+        $t(skill ? 'personalCredentialActions.empty' : 'personalCredentialActions.emptyWithoutAdd')
+      }}
     </p>
-    <table v-if="items.length" class="credential-table" aria-label="Agent 凭证列表">
+    <table
+      v-if="items.length"
+      class="credential-table"
+      :aria-label="$t('personalWorkbench.myCredentials')"
+    >
       <thead>
         <tr>
-          <th scope="col">资源群</th>
-          <th scope="col">绑定身份</th>
-          <th scope="col">操作</th>
+          <th scope="col">{{ $t('personalWorkbench.resourceGroups') }}</th>
+          <th scope="col">{{ $t('personalCredentialActions.account') }}</th>
+          <th scope="col">{{ $t('common.actions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -45,26 +63,46 @@
             </td>
             <td class="credential-controls">
               <div class="credential-actions">
-                <button
+                <el-button
+                  class="connection-button"
+                  type="primary"
+                  aria-haspopup="dialog"
+                  @click="openDetails(item)"
+                >
+                  {{ $t('personalCredentialActions.agentSetup') }}
+                </el-button>
+                <el-button
                   v-if="canViewKey(item)"
-                  class="connection-button primary"
+                  class="connection-button"
                   aria-haspopup="dialog"
                   @click="openDetails(item, true)"
                 >
                   {{ $t('personalCredentialActions.requestKey') }}
-                </button>
-                <span v-else class="key-unavailable">{{
-                  $t('personalCredentialActions.keyUnavailable')
-                }}</span>
-                <button class="connection-button" aria-haspopup="dialog" @click="openDetails(item)">
-                  {{ $t('personalCredentialActions.agentSetup') }}
-                </button>
+                </el-button>
               </div>
             </td>
           </tr>
         </template>
       </tbody>
     </table>
+    <el-dialog
+      v-model="addGroupOpen"
+      :title="$t('personalCredentialActions.addGroup')"
+      width="min(480px, calc(100% - 24px))"
+      append-to-body
+      align-center
+    >
+      <p>{{ $t('personalCredentialActions.addGroupHint') }}</p>
+      <blockquote class="add-group-prompt">打开个人资源台</blockquote>
+      <p class="scope">{{ $t('personalCredentialActions.addGroupConfirm') }}</p>
+      <span v-if="feedbackTarget === 'add'" class="copy-status" role="status">{{ feedback }}</span>
+      <template #footer>
+        <el-button @click="addGroupOpen = false">{{ $t('common.close') }}</el-button>
+        <el-button type="primary" @click="copyAddRequest">{{
+          $t('personalOnboarding.copyRequest')
+        }}</el-button>
+      </template>
+    </el-dialog>
     <el-dialog
       v-model="detailsOpen"
       :title="
@@ -81,34 +119,62 @@
           <div v-if="showKeyHelp" class="key-help">
             <p>{{ $t('personalCredentialActions.keyRequestInstructions') }}</p>
             <div class="credential-actions">
-              <button class="connection-button primary" @click="copyViewRequest(item)">
+              <el-button class="connection-button" type="primary" @click="copyViewRequest(item)">
                 {{ $t('personalCredentialActions.copyKeyRequest') }}
-              </button>
+              </el-button>
               <span v-if="feedbackTarget === item.id + '-more'" class="copy-status" role="status">{{
                 feedback
               }}</span>
             </div>
           </div>
           <template v-else>
+            <p class="scope">{{ $t('personalCredentialActions.setupHint') }}</p>
             <div class="credential-actions">
-              <button
-                class="connection-button primary"
+              <el-button
+                class="connection-button"
+                type="primary"
                 :disabled="loading"
                 @click="copyInstructions(item)"
               >
                 {{ $t('personalCredentialActions.copyInstructions') }}
-              </button>
+              </el-button>
               <span v-if="feedbackTarget === item.id" class="copy-status" role="status">{{
                 feedback
               }}</span>
             </div>
+            <el-button
+              class="connection-button"
+              link
+              :aria-expanded="instructionsVisible"
+              :aria-controls="`connection-instructions-${item.id}`"
+              @click="instructionsVisible = !instructionsVisible"
+            >
+              {{
+                $t(
+                  instructionsVisible
+                    ? 'personalCredentialActions.hideInstructions'
+                    : 'personalCredentialActions.showInstructions'
+                )
+              }}
+            </el-button>
             <textarea
+              v-if="instructionsVisible"
+              :id="`connection-instructions-${item.id}`"
               readonly
               :value="item.instructions"
               :aria-label="$t('personalCredentialActions.agentSetup')"
             />
             <details class="connection-recovery">
               <summary>{{ $t('personalCredentialActions.details') }}</summary>
+              <p class="scope">
+                {{
+                  $t(
+                    canViewKey(item)
+                      ? 'personalCredentialActions.viewHint'
+                      : 'personalCredentialActions.noViewHint'
+                  )
+                }}
+              </p>
               <dl class="credential-facts">
                 <div>
                   <dt>绑定身份</dt>
@@ -137,21 +203,21 @@
                 请保留本地有效 Key，并让原 Agent 检查恢复副本。
               </p>
               <div class="credential-actions">
-                <button
+                <el-button
                   v-if="rotationSupported"
                   class="connection-button"
                   :disabled="loading"
                   @click="copyRotationRequest(item)"
                 >
-                  请求重置 Key
-                </button>
-                <button
+                  {{ $t('personalCredentialActions.requestReset') }}
+                </el-button>
+                <el-button
                   v-if="item.recovery_instructions || skill"
                   class="connection-button"
                   @click="copyConnectionRecovery(item)"
                 >
-                  复制恢复指引
-                </button>
+                  {{ $t('personalCredentialActions.copyRecovery') }}
+                </el-button>
               </div>
               <span v-if="feedbackTarget === item.id + '-more'" class="copy-status" role="status">{{
                 feedback
@@ -173,12 +239,14 @@
         </template>
       </div>
       <template #footer>
-        <el-button @click="detailsOpen = false">关闭</el-button>
+        <el-button @click="detailsOpen = false">{{ $t('common.close') }}</el-button>
       </template>
     </el-dialog>
     <details v-if="supported && skill && !items.length" class="connection-recovery">
       <summary>如何找回连接</summary>
-      <button class="connection-button" @click="copyRecovery">复制恢复指引</button>
+      <el-button class="connection-button" @click="copyRecovery">{{
+        $t('personalCredentialActions.copyRecovery')
+      }}</el-button>
       <span v-if="feedbackTarget === 'recovery'" class="copy-status" role="status">{{
         feedback
       }}</span>
@@ -191,6 +259,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Plus, Refresh } from '@element-plus/icons-vue'
 import PersonalAgentActivity from './PersonalAgentActivity.vue'
 import { credentialAgentActivity } from '../utils/agentActivity'
 
@@ -209,12 +278,15 @@ const feedback = ref('')
 const feedbackTarget = ref('')
 const selectedId = ref('')
 const detailsOpen = ref(false)
+const addGroupOpen = ref(false)
 const showKeyHelp = ref(false)
+const instructionsVisible = ref(false)
 const selectedItem = computed(() => items.value.find(({ id }) => id === selectedId.value))
 function openDetails(item, keyHelp = false) {
   if (keyHelp && !canViewKey(item)) return
   selectedId.value = item.id
   showKeyHelp.value = keyHelp
+  instructionsVisible.value = false
   feedback.value = feedbackTarget.value = ''
   detailsOpen.value = true
 }
@@ -440,7 +512,7 @@ async function copy(value, limit, target) {
     } else fallbackCopy(value)
     if (current()) {
       feedbackTarget.value = target
-      feedback.value = '已复制无 Key 说明'
+      feedback.value = t('personalCredentialActions.copiedForAgent')
     }
   } catch {
     if (current()) {
@@ -536,6 +608,9 @@ function copyConnectionRecovery(item) {
 function copyRecovery() {
   return copy(recoveryGuide.value, undefined, 'recovery')
 }
+function copyAddRequest() {
+  return copy('打开个人资源台', undefined, 'add')
+}
 function healthText(value) {
   return (
     {
@@ -580,7 +655,13 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .connection-toolbar {
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+.connection-toolbar > .scope {
+  max-width: 480px;
+  line-height: 1.6;
 }
 .credential-table {
   width: 100%;
@@ -597,10 +678,10 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .credential-table thead th:last-child {
-  width: 245px;
+  width: 270px;
 }
 .credential-table thead th:nth-child(2) {
-  width: 32%;
+  width: 25%;
 }
 .credential-table th,
 .credential-table td {
@@ -619,9 +700,30 @@ onBeforeUnmount(() => {
   display: block;
   margin-top: 3px;
 }
-.key-unavailable {
+.credential-status small {
+  display: block;
+  margin-top: 5px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+}
+.credential-state {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.credential-state.available {
+  color: var(--el-color-success-dark-2);
+  background: var(--el-color-success-light-9);
+}
+.add-group-prompt {
+  margin: 12px 0;
+  padding: 10px 14px;
+  background: var(--el-fill-color-light);
+  border-left: 3px solid var(--el-color-primary);
+  color: var(--el-text-color-primary);
 }
 .credential-dialog {
   --line: var(--el-border-color);
@@ -636,6 +738,10 @@ onBeforeUnmount(() => {
 .credential-facts,
 .credential-facts dd {
   margin: 0;
+}
+.credential-dialog > .el-button {
+  justify-self: start;
+  margin-left: 0;
 }
 .key-help {
   display: grid;
@@ -662,7 +768,7 @@ onBeforeUnmount(() => {
   padding-block: 6px;
   color: var(--muted);
 }
-@media (max-width: 580px) {
+@media (max-width: 800px) {
   .credential-table thead {
     position: absolute;
     width: 1px;
@@ -690,8 +796,13 @@ onBeforeUnmount(() => {
   .credential-table .connection-entry > * {
     border-top: 0;
     padding: 0;
+    min-width: 0;
+    white-space: normal;
   }
   .credential-table .credential-controls {
+    grid-column: 1 / -1;
+  }
+  .credential-table .credential-status {
     grid-column: 1 / -1;
   }
 }
@@ -699,25 +810,13 @@ onBeforeUnmount(() => {
   color: var(--lb-color-warning, #a46914);
   margin: 0;
 }
-.connection-button {
-  background: var(--el-bg-color);
-  border: 1px solid var(--line);
-  color: inherit;
-  padding: 7px 11px;
-  border-radius: 6px;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
+.credential-actions .el-button + .el-button {
+  margin-left: 0;
 }
-.connection-button.primary {
-  color: var(--accent);
-  background: var(--el-color-primary-light-9);
-  border-color: var(--el-color-primary-light-7);
-  font-weight: 600;
-}
-.connection-button:disabled {
-  opacity: 0.5;
-  cursor: wait;
+.action-icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 5px;
 }
 .copy-status {
   font-size: 13px;

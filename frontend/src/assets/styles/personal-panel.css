@@ -643,7 +643,7 @@
 .personal-panel :deep(.workbench-actions) {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   margin-left: auto;
   flex-shrink: 0;
 }
@@ -653,16 +653,28 @@
   justify-content: center;
   gap: 6px;
   min-height: 32px;
-  padding: 4px 10px;
-  border: 1px solid var(--el-border-color);
+  padding: 6px 10px;
+  border: 1px solid transparent;
   border-radius: var(--el-border-radius-base);
-  background: var(--el-bg-color-overlay);
+  background: transparent;
   color: var(--el-text-color-regular);
   font-size: 13px;
   font-weight: 500;
   line-height: 1.2;
   text-decoration: none;
   white-space: nowrap;
+}
+.personal-panel :deep(.workbench-extension),
+.personal-panel :deep(.workbench-more) {
+  min-height: 32px;
+  height: 32px;
+  margin-left: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+.personal-panel :deep(.workbench-more) {
+  width: 32px;
+  padding: 6px;
 }
 
 .personal-panel :deep(.workbench-console .el-icon) {
