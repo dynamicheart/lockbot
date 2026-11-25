@@ -93,6 +93,7 @@ jq -nc --arg proof "$PROOF" '{proof:$proof}' |
     ("get", "/bindings"): """
 传个人 v2 Key，返回 `grants`，即此 Key 当前可访问的机器人列表。
 用 `name`、`platform`、`bot_id` 和 `chat_id` 确认来源。
+每条授权的 `low_utilization` 给出是否开启检查、任一触发条件、夜间暂停设置和确认时限。
 节点或机器人重名时，取对应的 `grant_ref` 来筛选资源。
 `grants: []` 表示当前 Key 没有可用的机器人授权。可以在目标群发起新的绑定。
 
@@ -150,6 +151,9 @@ curl -fsS "$LOCKBOT_URL/api/agent/v2/resources?model=p800&unit=card&available=tr
   重连后以当前状态为准。
 - `idle.notice` 只发给该 API 锁的持有人。使用其中的 `resource_ref` 和 `notice_ref`
   调用 `POST /commands` 的 `keep`。窗口为 `confirm_within_seconds` 秒，确认后复核时间延后 10 分钟。
+  `trigger` 表明本次提醒的原因。值为 `resource_has_waiting_user`（当前资源有人排队）
+  或 `bot_has_no_available_resources`（同一机器人没有可申请的空闲资源）。
+  用 `GET /bindings` 的 `grants[].low_utilization` 读取每个机器人的检查、夜间暂停与提醒规则。
 
 心跳以 SSE 注释发送。断线时可携带上次事件的 `Last-Event-ID` 按原条件重连。
 如果收到新 `snapshot`，用它替换本地视图。收到 `422 watch_scope_too_large` 时缩小范围。

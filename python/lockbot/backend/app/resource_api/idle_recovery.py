@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 CONFIRMATION_SECONDS = 10 * 60
 EXTRA_SECONDS = 10 * 60
+IDLE_SECONDS = 20 * 60
+TRIGGER_RESOURCE_QUEUE = "resource_has_waiting_user"
+TRIGGER_BOT_FULL = "bot_has_no_available_resources"
 
 
 def has_available_resource(state):
@@ -49,9 +52,9 @@ def idle_trigger_reason(bot, notice, now, *, state=None):
     if state is None:
         state = bot.published_snapshot().state
     if resource_has_waiter(state, notice.resource, notice.holder):
-        return "idle.reason_queue"
+        return TRIGGER_RESOURCE_QUEUE
     if not has_available_resource(state):
-        return "idle.reason_no_available"
+        return TRIGGER_BOT_FULL
     return None
 
 
@@ -152,12 +155,11 @@ class IdleRecovery:
                 and (notice.channel == channel or channel == "chat" and notice.group_delivered)
             ]
         now = self.clock()
-        return [
-            notice
-            for notice in notices
-            if (instance := self.manager.get_instance(notice.resource[0])) is not None
-            and idle_trigger_reason(instance.bot, notice, now)
-        ]
+        return [notice for notice in notices if self.trigger_reason(notice, now)]
+
+    def trigger_reason(self, notice, now):
+        instance = self.manager.get_instance(notice.resource[0])
+        return idle_trigger_reason(instance.bot, notice, now) if instance is not None else None
 
     def delivered(self, notice, *, group=False):
         """Begin the confirmation window after a transport accepts the reminder."""

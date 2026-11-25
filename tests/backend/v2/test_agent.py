@@ -1680,6 +1680,16 @@ def test_v2_idle_recovery_notifies_and_confirms_exact_holding(
     async def exercise():
         nonlocal clock
         holder, other = connect("holder"), connect("other")
+        grants = client.get(API + "/bindings", headers=holder).raise_for_status().json()["grants"]
+        policy = grants[0]["low_utilization"]
+        assert policy["enabled"] and policy["sampling_required"]
+        assert policy["trigger_any"] == ["resource_has_waiting_user", "bot_has_no_available_resources"]
+        assert (policy["observation_seconds"], policy["confirm_window_seconds"], policy["keep_extension_seconds"]) == (
+            1200,
+            600,
+            600,
+        )
+        assert policy["overnight_pause"]["enabled"] is False
         resources = client.get(API + "/resources", headers=holder).raise_for_status().json()["rows"]
         refs = {row["node"]: row["resource_ref"] for row in resources}
         ref = refs["node-a"]
@@ -1699,6 +1709,8 @@ def test_v2_idle_recovery_notifies_and_confirms_exact_holding(
             event, warning = await frame(watched)
             assert (event, warning["resource_ref"], warning["confirm_within_seconds"]) == ("idle.notice", ref, 600)
             assert (warning["utilization_percent"], warning["threshold_percent"]) == (1.2, 5)
+            assert warning["trigger"] == "resource_has_waiting_user"
+            assert (warning["observation_seconds"], warning["keep_extension_seconds"]) == (1200, 600)
             assert (await frame(watched))[0] == "heartbeat"
 
             body = {"operation": "keep", "notice_ref": warning["notice_ref"]}

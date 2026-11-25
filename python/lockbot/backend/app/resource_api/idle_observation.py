@@ -22,6 +22,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.resource_api.idle_notifications import IdleChat
 from lockbot.backend.app.resource_api.idle_recovery import (
+    IDLE_SECONDS,
     IdleRecovery,
     has_available_resource,
     idle_check_overnight_cutoff,
@@ -32,7 +33,6 @@ from lockbot.metrics.gateway import regex_escape
 logger = logging.getLogger(__name__)
 
 CONFIG_ENV = "LOCKBOT_IDLE_OBSERVATION_CONFIG"
-IDLE_SECONDS = 20 * 60
 POLL_SECONDS = 60
 REQUEST_SECONDS = 5
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024

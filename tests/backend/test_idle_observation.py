@@ -362,8 +362,9 @@ def test_chat_reminder_and_keep_stay_with_the_holder(inventory, monkeypatch, cha
     assert warning["header"]["toid"] == [123]
     reason = "当前资源有人排队" if waiting else "本机器人无空闲资源"
     expected = (
-        f"❗【资源利用率偏低】\n\ndemo dev0 的利用率已连续 20 分钟低于 5% (1.2%)。{reason}。\n"
-        "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `keep demo dev0`。"
+        "❗【资源利用率偏低】\n\ndemo dev0 的利用率已连续 20 分钟低于 5%（当前 1.2%）。\n"
+        "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `keep demo dev0`。\n\n"
+        f"触发原因：{reason}。"
     )
     assert warning["body"] == [
         {"type": "TEXT", "content": expected + "\n\n"},
@@ -432,7 +433,7 @@ def test_recovery_broadcasts_only_after_commit(inventory, monkeypatch, channel):
         assert messages == []
         return
     assert len(messages) == 2
-    assert "demo 的利用率已连续 20 分钟低于 5% (0%)" in messages[0][0]["content"]
+    assert "demo 的利用率已连续 20 分钟低于 5%（当前 0%）" in messages[0][0]["content"]
     assert messages[-1] == [
         {
             "type": "TEXT",

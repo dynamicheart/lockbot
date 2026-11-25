@@ -184,12 +184,12 @@ MESSAGES = {
     "notify.wait_time_increased": "请注意等待时间已增加 \n\n",
     "idle.warning": (
         "❗【资源利用率偏低】\n\n"
-        "{resource} 的利用率已连续 20 分钟低于 {threshold}% ({utilization}%)。{reason}{hours}。\n"
-        "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `{command}`。"
+        "{resource} 的利用率已连续 20 分钟低于 {threshold}%（当前 {utilization}%）。\n"
+        "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `{command}`。\n\n"
+        "触发原因：{reason}。"
     ),
-    "idle.reason_queue": "当前资源有人排队",
-    "idle.reason_no_available": "本机器人无空闲资源",
-    "idle.reason_daytime": "（非夜间）",
+    "idle.reason.resource_has_waiting_user": "当前资源有人排队",
+    "idle.reason.bot_has_no_available_resources": "本机器人无空闲资源",
     "idle.confirmed": "✅【已确认保留】\n\n{resource} 将于 {time} 重新检查利用率。",
     "idle.confirm_unavailable": "⚠️【无法保留资源】\n\n{resource} 当前没有你的待确认提醒。",
     "idle.reclaimed": "🤖【机器人自动回收低利用率资源】\n\n用户：{holder}\n资源：{resource}\n操作：已释放锁定",

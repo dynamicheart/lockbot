@@ -7,6 +7,14 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from lockbot.backend.app.resource_api import commands
+from lockbot.backend.app.resource_api.idle_recovery import (
+    CONFIRMATION_SECONDS,
+    EXTRA_SECONDS,
+    IDLE_SECONDS,
+    TRIGGER_BOT_FULL,
+    TRIGGER_RESOURCE_QUEUE,
+    idle_check_overnight_cutoff,
+)
 from lockbot.backend.app.resource_api.snapshot import QUEUE_CLAIM_WINDOW_SECONDS
 from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
 from lockbot.core.bot_instance import _BOT_CLASS_MAP
@@ -20,6 +28,42 @@ class OvernightRule(BaseModel):
     start: str
     end: str
     cutoff_unix_seconds: int | None
+
+
+class LowUtilizationRule(BaseModel):
+    enabled: bool = Field(description="Whether the bot allows checks on registered exclusive resources.")
+    sampling_required: bool
+    trigger_any: list[Literal["resource_has_waiting_user", "bot_has_no_available_resources"]]
+    observation_seconds: int
+    confirm_window_seconds: int
+    keep_extension_seconds: int
+    agent_group_notifications: bool
+    overnight_pause: OvernightRule
+
+
+def low_utilization_rule(config, now):
+    cutoff = idle_check_overnight_cutoff(config, now)
+    return {
+        "enabled": config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"),
+        "sampling_required": True,
+        "trigger_any": [TRIGGER_RESOURCE_QUEUE, TRIGGER_BOT_FULL],
+        "observation_seconds": IDLE_SECONDS,
+        "confirm_window_seconds": CONFIRMATION_SECONDS,
+        "keep_extension_seconds": EXTRA_SECONDS,
+        "agent_group_notifications": config.get_val("GROUP_REMIND_AGENT_IDLE"),
+        "overnight_pause": {
+            "enabled": config.get_val("OVERNIGHT_PAUSE_IDLE_CHECK"),
+            "timezone": config.get_val("OVERNIGHT_TIMEZONE"),
+            "start": config.get_val("OVERNIGHT_START"),
+            "end": config.get_val("OVERNIGHT_END"),
+            "cutoff_unix_seconds": cutoff if cutoff is not None and now < cutoff else None,
+        },
+    }
+
+
+def current_low_utilization_rule(bot):
+    config = Config({**json.loads(bot.config_overrides or "{}"), "BOT_TYPE": bot.bot_type})
+    return low_utilization_rule(config, int(time.time()))
 
 
 class PollMinimumSeconds(BaseModel):
@@ -44,6 +88,7 @@ class BotRules(BaseModel):
     )
     resource_unit: Literal["node", "card"] = Field(description="node for NODE/QUEUE; card for DEVICE/QUEUE_DEVICE.")
     overnight: OvernightRule
+    low_utilization: LowUtilizationRule
     default_duration_seconds: int
     max_lock_duration_seconds: int = Field(
         description="Configured remaining-duration ceiling after acquisition/renewal; -1 means unlimited."
@@ -85,6 +130,7 @@ def current_bot_rules(bot, user_id: str) -> dict:
             "end": config.get_val("OVERNIGHT_END"),
             "cutoff_unix_seconds": cutoff,
         },
+        "low_utilization": low_utilization_rule(config, now),
         "default_duration_seconds": config.get_val("DEFAULT_DURATION"),
         "max_lock_duration_seconds": maximum,
         "duration_limit_exempt": exempt,

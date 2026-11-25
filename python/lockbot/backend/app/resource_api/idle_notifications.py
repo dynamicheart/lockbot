@@ -76,10 +76,7 @@ class IdleChat:
                         resource=resource,
                         utilization=str(notice.utilization_percent).removesuffix(".0"),
                         threshold=str(notice.threshold_percent).removesuffix(".0"),
-                        reason=t(reason, config=bot.config),
-                        hours=t("idle.reason_daytime", config=bot.config)
-                        if bot.config.get_val("OVERNIGHT_PAUSE_IDLE_CHECK")
-                        else "",
+                        reason=t(f"idle.reason.{reason}", config=bot.config),
                         command=f"keep {resource}",
                     )
                     mentions = [notice.holder]
