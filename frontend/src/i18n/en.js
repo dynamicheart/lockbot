@@ -380,6 +380,7 @@ export default {
     outcome: 'Processing result',
     previous: 'Previous',
     next: 'Next',
+    page: 'Page {page}',
     outcomes: {
       uncertain: 'Outcome uncertain',
       dispatched: 'Dispatched',
@@ -1144,6 +1145,7 @@ export default {
     title: 'Agent activity',
     description: 'V1 counts cover one bot. V2 counts cover all bots authorized by the token.',
     version: 'Version',
+    allVersions: 'All versions',
     inactive: 'No active grants',
     empty: 'No Agent activity',
     user: 'User',
@@ -1160,7 +1162,7 @@ export default {
     counting: 'How counts work',
     countingHelp:
       'HTTP attempts, not successful resource changes. Refused includes throttled; both are already counted in reads/writes. Revoked authorizations retain historical counts. Not revoked does not guarantee that an authorization is unexpired or usable.',
-    error: 'Could not refresh Agent activity. Previously loaded records are shown.',
+    error: 'Could not load Agent activity.',
   },
   // === Bot Card ===
   botCard: {

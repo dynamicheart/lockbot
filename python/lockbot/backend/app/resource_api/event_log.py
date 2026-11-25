@@ -216,7 +216,16 @@ MAX_LINE_BYTES = 64 * 1024
 
 
 def read_history(
-    bot_id, *, limit=25, cursor=None, query="", private=False, include_source_ip=False, stream="agent", project=None
+    bot_id,
+    *,
+    limit=25,
+    cursor=None,
+    query="",
+    api_version=None,
+    private=False,
+    include_source_ip=False,
+    stream="agent",
+    project=None,
 ):
     """Newest first, inode/offset cursor: appends do not shift subsequent pages.
 
@@ -310,6 +319,10 @@ def read_history(
                         if row is None:
                             continue
                     else:
+                        # Before V2 commands were logged, this file contained only V1 operations.
+                        version = row.setdefault("api_version", 1)
+                        if api_version is not None and (type(version) is not int or version != api_version):
+                            continue
                         address = _source_ip(row.get("source_ip")) if include_source_ip else None
                         # Only event-schema fields are exposed; redact again for older files.
                         row = _safe(
@@ -374,6 +387,8 @@ def read_history(
                     break
                 stop = start
             if next_position:
+                if next_position[1] == 0 and index == len(handles) - 1:
+                    next_position = None
                 break
             if stop > 0:
                 next_position = (inode, stop)

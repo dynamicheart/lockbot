@@ -360,6 +360,7 @@ export default {
     outcome: '处理结果',
     previous: '上一页',
     next: '下一页',
+    page: '第 {page} 页',
     outcomes: {
       uncertain: '结果不确定',
       dispatched: '已分派',
@@ -1099,6 +1100,7 @@ export default {
     title: 'Agent 访问情况',
     description: 'V1 按机器人统计，V2 合计令牌授权的所有机器人。',
     version: '版本',
+    allVersions: '全部版本',
     inactive: '无有效授权',
     empty: '暂无 Agent 访问记录',
     user: '用户',
@@ -1115,7 +1117,7 @@ export default {
     counting: '统计口径',
     countingHelp:
       '统计 HTTP 请求次数，不代表资源操作成功。拒绝包含限流，二者已计入读写次数；已撤销的授权保留历史统计。未撤销不代表授权当前未过期或一定可用。',
-    error: '无法加载 Agent 访问情况，显示的是上次成功加载的记录。',
+    error: '暂时无法加载 Agent 访问情况。',
   },
   // === Bot Card ===
   botCard: {

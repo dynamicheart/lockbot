@@ -402,6 +402,11 @@ def test_management_activity_identifies_v2_tokens_and_counts_recent_verified_acc
         assert "sort_key" not in item and "credential_digest" not in item
         assert item["bot_name"] == ("Versioned statistics" if expected == "v1" else None)
     assert client.get(path, headers=admin_header).json()["total"] == 1
+    for version in ("v1", "v2"):
+        filtered = client.get(path, headers=admin_header, params={"version": version, "limit": 1}).raise_for_status()
+        assert filtered.json()["total"] == 1
+        (item,) = filtered.json()["items"]
+        assert item["version"] == version
 
     legacy.credential_expires_at = datetime.utcnow() - timedelta(seconds=1)
     db_session.commit()
@@ -413,6 +418,11 @@ def test_management_activity_identifies_v2_tokens_and_counts_recent_verified_acc
     (item,) = history["items"]
     assert item["version"] == "v1" and item["expired"] and not item["active"]
     assert item["read_requests"] == 2
+    for version, status in (("v1", "active"), ("v2", "history")):
+        filtered = client.get(
+            path, headers=admin_header, params={"version": version, "status": status, "include_legacy": True}
+        ).raise_for_status()
+        assert filtered.json()["total"] == 0
 
 
 def test_v2_binding_source_capacity_releases_confirmed_slot(client, auth_header, session_factory, monkeypatch):

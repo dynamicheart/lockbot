@@ -98,6 +98,31 @@ def test_source_ip_is_searchable_in_bot_management_history_only(client, api, db_
     assert client.get(operator, params=params, headers=headers).raise_for_status().json()["items"] == []
 
 
+def test_history_filters_versions_before_pagination_and_includes_legacy_rows(client, api):
+    actor = _actor(api["bot_id"])
+    for fields in (
+        {"command": "lock n1 1h"},
+        {"command": "book n1 1h", "api_version": 1},
+        {"command": "free", "api_version": 2},
+    ):
+        event_log.write_event(actor=actor, event={"operation": "command", **fields}, status=200, duration_ms=1)
+
+    path = f"/api/bots/{api['bot_id']}/agent-history"
+
+    def history(**params):
+        return client.get(path, params=params, headers=api["auth_header"]).raise_for_status().json()
+
+    assert [item["api_version"] for item in history()["items"]] == [2, 1, 1]
+    first = history(version="v1", limit=1)
+    assert [item["command"] for item in first["items"]] == ["book"]
+    second = history(version="v1", limit=1, cursor=first["next_cursor"])
+    assert [item["command"] for item in second["items"]] == ["lock"]
+    assert second["next_cursor"] is None
+    assert [item["command"] for item in history(version="v2", query="free")["items"]] == ["free"]
+    assert history(version="v2", query="book")["items"] == []
+    assert client.get(path, params={"version": "v3"}, headers=api["auth_header"]).status_code == 422
+
+
 def test_release_keeps_command_history_without_private_metadata(client, api, tmp_path):
     assert command(client, api, "lock n1 1h", agent_label="dev-agent", purpose="Original task").status_code == 200
     assert command(client, api, "free n1", purpose="Task completed").status_code == 200

@@ -8,6 +8,7 @@ import threading
 import time
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import (
@@ -489,6 +490,7 @@ def get_service_agent_activity(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     include_legacy: bool = False,
+    version: Literal["v1", "v2"] | None = None,
     _user: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
@@ -519,7 +521,7 @@ def get_service_agent_activity(
         .select_from(PersonalCredential)
         .outerjoin(V2AgentActivity, V2AgentActivity.principal_id == PersonalCredential.public_id)
     )
-    if include_legacy:
+    if version == "v1" or (version is None and include_legacy):
         legacy = (
             select(
                 literal("v1").label("version"),
@@ -539,7 +541,7 @@ def get_service_agent_activity(
             .outerjoin(Bot, Bot.id == ResourceBinding.bound_bot_id)
             .outerjoin(AgentActivity, AgentActivity.binding_id == ResourceBinding.id)
         )
-        query = union_all(query, legacy)
+        query = legacy if version == "v1" else union_all(query, legacy)
     tokens = query.subquery()
     filtered = select(tokens)
     if status != "all":
@@ -554,7 +556,7 @@ def get_service_agent_activity(
     for index, row in enumerate(rows):
         item = dict(row, row_key=f"{page}:{index}")
         item.pop("sort_key")
-        if not include_legacy:
+        if not include_legacy and version != "v1":
             item.pop("bot_name")
         items.append(item)
     return {"total": total, "page": page, "limit": limit, "items": items}
