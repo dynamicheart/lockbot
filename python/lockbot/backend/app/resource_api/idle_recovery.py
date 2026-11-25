@@ -25,8 +25,12 @@ class IdleNotice:
     version: str
     since: float
     generation: int
+    utilization_percent: float
+    threshold_percent: float
     delivered_at: float | None = None
+    group_delivered: bool = False
     confirmed: bool = False
+    active: bool = True
 
     @property
     def confirm_by(self):
@@ -58,10 +62,38 @@ class IdleRecovery:
             created = []
             for resource, row in candidates.items():
                 notice = self._notices.get(resource)
-                if notice is not None and (notice.version, notice.since) == (row.version, row.since):
+                if notice is not None and (notice.holder, notice.since, notice.generation) == (
+                    row.holder,
+                    row.since,
+                    row.generation,
+                ):
+                    current = replace(
+                        notice,
+                        version=row.version,
+                        channel=row.channel,
+                        active=row.active,
+                        utilization_percent=row.utilization_percent,
+                    )
+                    self._notices[resource] = current
+                    if (
+                        row.active
+                        and notice.delivered_at is None
+                        and (not notice.active or notice.channel != row.channel)
+                    ):
+                        created.append(current)
+                    continue
+                if not row.active:
                     continue
                 notice = IdleNotice(
-                    token_urlsafe(12), resource, row.holder, row.channel, row.version, row.since, row.generation
+                    token_urlsafe(12),
+                    resource,
+                    row.holder,
+                    row.channel,
+                    row.version,
+                    row.since,
+                    row.generation,
+                    row.utilization_percent,
+                    row.threshold_percent,
                 )
                 self._notices[resource] = notice
                 created.append(notice)
@@ -72,22 +104,28 @@ class IdleRecovery:
             return [
                 notice
                 for notice in self._notices.values()
-                if notice.holder == holder and notice.resource[0] in bot_ids and notice.channel == channel
+                if notice.active
+                and notice.holder == holder
+                and notice.resource[0] in bot_ids
+                and (notice.channel == channel or channel == "chat" and notice.group_delivered)
             ]
 
-    def delivered(self, notice):
+    def delivered(self, notice, *, group=False):
         """Begin the confirmation window after a transport accepts the reminder."""
         with self._lock:
             current = self._notices.get(notice.resource)
-            if current is None or current.ref != notice.ref:
+            if current is None or current.ref != notice.ref or not current.active:
                 return None
-            if current.delivered_at is None:
-                current = replace(current, delivered_at=self.clock())
+            if current.delivered_at is None or group and not current.group_delivered:
+                delivered_at = self.clock() if current.delivered_at is None else current.delivered_at
+                current = replace(current, delivered_at=delivered_at, group_delivered=current.group_delivered or group)
                 self._notices[notice.resource] = current
             return current
 
     def confirm(self, bot, bot_id, holder, ref, *, channel, resource=None):
         """Confirm the exact notice from its authenticated holder while the lease is live."""
+        if not bot.config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"):
+            return None
         notices = self.for_holder(holder, {bot_id}, channel=channel)
         notice = next(
             (
@@ -103,7 +141,7 @@ class IdleRecovery:
         _, node, card = notice.resource
         with bot._lock, self._lock:
             current = self._notices.get(notice.resource)
-            if current is None or current.ref != notice.ref:
+            if current is None or current.ref != notice.ref or not current.active:
                 return None
             now = self.clock()
             version = bot.op_holding_version(bot.state.bot_state, node, card, holder, at=now)
@@ -140,7 +178,9 @@ class IdleRecovery:
 
         try:
             with self.manager.admit(bot_id) as lease, operation_attempt(bot_id, "internal", "idle_reclaim"):
-                if lease.generation != notice.generation:
+                if lease.generation != notice.generation or not lease.bot.config.get_val(
+                    "IDLE_UTILIZATION_CHECK_ENABLED"
+                ):
                     return False
                 return lease.bot.reclaim_idle_holding(node, card, notice.holder, notice.version, permit=permit)
         except (AdmissionFull, BotNotRunning, HoldingVersionConflict, InstanceRetiring):
@@ -154,6 +194,8 @@ class IdleRecovery:
         deadline = notice.review_at
         return (
             deadline is not None
+            and notice.active
+            and evidence.active
             and evidence.candidate
             and (notice.version, notice.since) == (evidence.version, evidence.since)
             and deadline <= evidence.observed_at <= now <= evidence.observed_at + max_age

@@ -17,22 +17,34 @@ class IdleChat:
         self.clock = clock
 
     def confirm(self, bot, holder, group_id, argument):
-        if self.recovery is None:
-            return t("idle.confirm_unavailable", config=bot.config, resource=argument)
-        parts = argument.split()
-        groups = bot.config.get_val("_AUTHORIZED_GROUP_IDS", [])
-        if list(groups) == [group_id] and (
-            len(parts) == 1 or len(parts) == 2 and re.fullmatch(r"dev[0-9]{1,6}", parts[1])
-        ):
-            card = int(parts[1][3:]) if len(parts) == 2 else None
-            bot_id = bot.config.get_val("BOT_ID")
-            notice = self.recovery.confirm(bot, bot_id, holder, None, channel="chat", resource=(bot_id, parts[0], card))
-            if notice is not None:
-                review_time = datetime.fromtimestamp(notice.review_at).astimezone().strftime("%H:%M:%S %Z")
-                return t(
-                    "idle.confirmed", config=bot.config, resource=_resource_label(notice.resource), time=review_time
-                )
-        return t("idle.confirm_unavailable", config=bot.config, resource=argument)
+        config = bot.config
+        groups = config.get_val("_AUTHORIZED_GROUP_IDS", [])
+        unavailable = "idle.confirm_unavailable"
+        if self.recovery is None or list(groups) != [group_id]:
+            return t(unavailable, config=config, resource=argument)
+
+        targets = {}
+        bot_id = config.get_val("BOT_ID")
+        for target in re.split(r"[,，]", argument):
+            parts = target.split()
+            if len(parts) == 1:
+                card = None
+            elif len(parts) == 2 and re.fullmatch(r"dev[0-9]{1,6}", parts[1]):
+                card = int(parts[1][3:])
+            else:
+                return t(unavailable, config=config, resource=argument)
+            resource = (bot_id, parts[0], card)
+            targets[resource] = _resource_label(resource)
+
+        replies = []
+        for resource, label in targets.items():
+            notice = self.recovery.confirm(bot, bot_id, holder, None, channel="chat", resource=resource)
+            if notice is None:
+                replies.append(t(unavailable, config=config, resource=label))
+                continue
+            review_time = datetime.fromtimestamp(notice.review_at).astimezone().strftime("%H:%M:%S %Z")
+            replies.append(t("idle.confirmed", config=config, resource=label, time=review_time))
+        return "\n\n".join(replies)
 
     def send(self, notice, kind):
         bot_id, node, card = notice.resource
@@ -41,6 +53,10 @@ class IdleChat:
                 if lease.generation != notice.generation:
                     return False
                 bot = lease.bot
+                if not bot.config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"):
+                    return False
+                if notice.channel == "api" and not bot.config.get_val("GROUP_REMIND_AGENT_IDLE"):
+                    return False
                 groups = bot.config.get_val("_AUTHORIZED_GROUP_IDS", [])
                 if len(groups) != 1:
                     return False
@@ -53,7 +69,14 @@ class IdleChat:
                         != notice.version
                     ):
                         return False
-                    body = t("idle.warning", config=bot.config, resource=resource, command=f"keep {resource}")
+                    body = t(
+                        "idle.warning",
+                        config=bot.config,
+                        resource=resource,
+                        utilization=str(notice.utilization_percent).removesuffix(".0"),
+                        threshold=str(notice.threshold_percent).removesuffix(".0"),
+                        command=f"keep {resource}",
+                    )
                     mentions = [notice.holder]
                 else:
                     body = t("idle.reclaimed", config=bot.config, resource=resource, holder=notice.holder)

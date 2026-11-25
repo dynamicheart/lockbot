@@ -1689,7 +1689,7 @@ def test_v2_idle_recovery_notifies_and_confirms_exact_holding(
         version = bot.op_holding_version(bot.published_snapshot().state, "node-a", None, "holder", at=clock)
         assert version is not None
         clock = start + 1200
-        evidence = IdleEvidence(version, start, clock, "holder", "api", generation)
+        evidence = IdleEvidence(version, start, clock, "holder", "api", generation, 1.2, 5)
         recovery.reconcile(0, {key: evidence})
         async with stream(holder) as watched, stream(other) as unwatched:
             assert (await frame(watched))[0] == "snapshot"
@@ -1697,6 +1697,7 @@ def test_v2_idle_recovery_notifies_and_confirms_exact_holding(
             assert (await frame(unwatched))[0] == "heartbeat"
             event, warning = await frame(watched)
             assert (event, warning["resource_ref"], warning["confirm_within_seconds"]) == ("idle.notice", ref, 600)
+            assert (warning["utilization_percent"], warning["threshold_percent"]) == (1.2, 5)
             assert (await frame(watched))[0] == "heartbeat"
 
             body = {"operation": "keep", "notice_ref": warning["notice_ref"]}

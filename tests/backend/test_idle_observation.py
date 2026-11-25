@@ -265,7 +265,7 @@ def test_recovery_waits_for_accepted_reminder_and_post_deadline_samples(inventor
     asyncio.run(exercise())
 
 
-@pytest.mark.parametrize("failure", ["stale", "missing_card", "source_error", "notice_failed", "renewed"])
+@pytest.mark.parametrize("failure", ["stale", "missing_card", "source_error", "notice_failed", "disabled"])
 def test_recovery_retains_holding_when_evidence_or_delivery_is_missing(inventory, failure):
     manager, targets, _ = inventory
     bot = manager.get_instance(1).bot
@@ -293,24 +293,31 @@ def test_recovery_retains_holding_when_evidence_or_delivery_is_missing(inventory
         async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
             for offset in range(0, 1981, 180):
                 now = start + offset
-                if offset == 1980 and failure == "renewed":
-                    execute_text_command("alice", "lock demo 10m", bot, source="chat")
+                if offset == 1980 and failure == "disabled":
+                    (notice,) = observer.recovery.for_holder("alice", {1}, channel="chat")
+                    bot.config.set_val("IDLE_UTILIZATION_CHECK_ENABLED", False)
+                    assert observer.recovery.confirm(bot, 1, "alice", notice.ref, channel="chat") is None
+                    prior = observer.candidates[(1, "demo", None)]
+                    assert not observer.recovery.reclaim_ready(
+                        {(1, "demo", None): policy.replace(prior, observed_at=now)}, 240
+                    )
                 await observer.poll_source(0, client)
             assert bot.published_snapshot().state["demo"]["current_users"][0]["user_id"] == "alice"
 
     asyncio.run(exercise())
 
 
-@pytest.mark.parametrize("channel", ["chat", "api"])
-def test_chat_reminder_and_keep_stay_with_the_chat_holder(inventory, monkeypatch, channel):
+@pytest.mark.parametrize("channel,group_enabled", [("chat", False), ("api", False), ("api", True)])
+def test_chat_reminder_and_keep_stay_with_the_holder(inventory, monkeypatch, channel, group_enabled):
     manager, targets, _ = inventory
     bot = manager.get_instance(2).bot
     bot.config.set_val("_AUTHORIZED_GROUP_IDS", ["123"])
+    bot.config.set_val("GROUP_REMIND_AGENT_IDLE", group_enabled)
     bot.unlock("alice", "free demo dev0")
     execute_text_command("alice", "lock demo dev0 1h", bot, source=channel)
     start = bot.published_snapshot().state["demo"][0]["current_users"][0]["start_time"]
     now = start
-    sample_cards = None
+    sample_cards = {"dev-a": 1.2, "dev-b": 82}
     config = policy.ObservationConfig.model_validate({"sources": [source([{**targets[1], "recover_idle": True}])]})
     observer = policy.IdleObserver(config, manager, clock=lambda: now)
     bot.idle_confirmation_hook = observer.confirm_chat
@@ -340,23 +347,27 @@ def test_chat_reminder_and_keep_stay_with_the_chat_holder(inventory, monkeypatch
     assert "无法保留资源" in keep("other", "123", 0)
     assert "无法保留资源" in keep("alice", "456", 0)
     assert "无法保留资源" in keep("alice", "123", 1)
-    if channel == "api":
+    if channel == "api" and not group_enabled:
         assert messages == []
         assert "无法保留资源" in keep("alice", "123", 0)
         return
     (warning,) = messages
     assert warning["header"]["toid"] == [123]
+    expected = (
+        "demo dev0 的利用率已连续 20 分钟低于 5% (1.2%)\n\n"
+        "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `keep demo dev0`。"
+    )
     assert warning["body"] == [
-        {
-            "type": "TEXT",
-            "content": "❗【资源利用率偏低】\n\ndemo dev0 已连续 20 分钟处于低利用率。\n"
-            "请在 10 分钟内恢复使用。如还需要时间，发送 `keep demo dev0`，可多保留 10 分钟。\n\n",
-        },
+        {"type": "TEXT", "content": expected + "\n\n"},
         {"type": "AT", "atuserids": ["alice"]},
     ]
     assert keep("alice", "123", 0).startswith("✅【已确认保留】\n\ndemo dev0 将于")
     (notice,) = observer.recovery.for_holder("alice", {2}, channel="chat")
     assert notice.review_at == start + 2460
+    if channel == "api":
+        api_notice = observer.recovery.delivered(notice)
+        assert api_notice.confirm_by == start + 1860
+        assert observer.recovery.confirm(bot, 2, "alice", notice.ref, channel="api", resource=notice.resource) == notice
 
     async def recheck():
         nonlocal now, sample_cards
@@ -409,7 +420,11 @@ def test_recovery_broadcasts_only_after_commit(inventory, monkeypatch, channel):
             assert bot.published_snapshot().state["demo"]["status"] == "idle"
 
     asyncio.run(exercise())
-    assert len(messages) == (2 if channel == "chat" else 1)
+    if channel == "api":
+        assert messages == []
+        return
+    assert len(messages) == 2
+    assert "demo 的利用率已连续 20 分钟低于 5% (0%)" in messages[0][0]["content"]
     assert messages[-1] == [
         {
             "type": "TEXT",
@@ -472,3 +487,83 @@ def test_gateway_issuer_checks_live_identity_endpoint_and_mappings(inventory, mo
     source_config["endpoint"] = "https://metrics.example.test"
     bot.uuid = str(uuid4())
     assert policy._bot_metrics_token(config) is None
+
+
+def test_chat_keep_confirms_each_listed_resource(inventory):
+    manager, targets, _ = inventory
+    bot = manager.get_instance(1).bot
+    bot.config.set_val("_AUTHORIZED_GROUP_IDS", ["123"])
+    bot.unlock("alice", "free demo")
+    execute_text_command("alice", "lock demo,other 1h", bot, source="chat")
+    state = bot.published_snapshot().state
+    start = state["demo"]["current_users"][0]["start_time"]
+    now = start + policy.IDLE_SECONDS
+    config = policy.ObservationConfig.model_validate({"sources": [source([{**targets[0], "recover_idle": True}])]})
+    observer = policy.IdleObserver(config, manager, clock=lambda: now)
+    bot.idle_confirmation_hook = observer.confirm_chat
+    evidence = {}
+    for node in ("demo", "other"):
+        version = bot.op_holding_version(state, node, None, "alice", at=now)
+        evidence[1, node, None] = policy.IdleEvidence(version, start, now, "alice", "chat", 1, 0, 5)
+    for notice in observer.recovery.reconcile(0, evidence):
+        observer.recovery.delivered(notice, group=True)
+    reply = execute_text_command("alice", "keep demo, other，demo,unknown", bot, group_id="123")
+    text = bot.adapter.extract_reply_text(reply)
+    assert text.count("已确认保留") == 2
+    assert "unknown 当前没有你的待确认提醒" in text
+    assert all(notice.confirmed for notice in observer.recovery.for_holder("alice", {1}, channel="chat"))
+
+
+@pytest.mark.parametrize("action", ["relock", "renew", "new_holder", "busy"])
+def test_low_utilization_window_follows_the_same_holder(inventory, monkeypatch, action):
+    manager, targets, _ = inventory
+    bot = manager.get_instance(1).bot
+    bot.unlock("alice", "free demo")
+    execute_text_command("alice", "lock demo 1h", bot, source="chat")
+    start = bot.published_snapshot().state["demo"]["current_users"][0]["start_time"]
+    now = start
+    collected = start
+    cards = {"dev-a": 0, "dev-b": 0}
+    monkeypatch.setattr("time.time", lambda: now)
+    config = policy.ObservationConfig.model_validate({"sources": [source([{**targets[0], "recover_idle": True}])]})
+    observer = policy.IdleObserver(config, manager, clock=lambda: now)
+    sent = []
+    observer.chat_notification = lambda notice, kind: sent.append(kind) is None
+
+    async def exercise():
+        nonlocal now, collected
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: response(collected, cards=cards))
+        ) as client:
+            for offset in range(0, 1261, 180):
+                now = collected = start + offset
+                await observer.poll_source(0, client)
+            (first,) = observer.recovery.for_holder("alice", {1}, channel="chat")
+            assert first.review_at == start + 1860
+
+            now = collected = start + 1380
+            who = "bob" if action == "new_holder" else "alice"
+            if action != "renew":
+                bot.unlock("alice", "free demo")
+                await observer.poll_source(0, client)
+                assert not observer.recovery.for_holder("alice", {1}, channel="chat")
+                now += 1
+            execute_text_command(who, "lock demo 1h", bot, source="chat")
+            await observer.poll_source(0, client)  # The latest sample predates a fresh acquisition.
+            if action == "busy":
+                cards["dev-a"] = 10
+            for offset in (1500, 1680, 1860):
+                now = collected = start + offset
+                await observer.poll_source(0, client)
+                if offset == 1500 and action in {"relock", "renew"}:
+                    (current,) = observer.recovery.for_holder("alice", {1}, channel="chat")
+                    assert (current.ref, current.review_at) == (first.ref, first.review_at)
+                    assert current.version != first.version
+            if action in {"relock", "renew"}:
+                assert bot.published_snapshot().state["demo"]["status"] == "idle"
+                assert sent == ["warning", "released"]
+            else:
+                assert bot.published_snapshot().state["demo"]["current_users"][0]["user_id"] == who
+                assert sent == ["warning"]
+
+    asyncio.run(exercise())
