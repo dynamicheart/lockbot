@@ -617,7 +617,9 @@ def get_bot(
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Authorization"
     migration_in_progress = user.role == "super_admin" and migration_fence(db, bot_id) is not None
-    return {**_mask_bot(bot, db), **view, "migration_in_progress": migration_in_progress}
+    observer = getattr(request.app.state, "idle_observer", None)
+    sampling = observer.sampling_status(bot.id, bot.uuid) if observer else None
+    return {**_mask_bot(bot, db), **view, "migration_in_progress": migration_in_progress, "idle_sampling": sampling}
 
 
 @router.post("/{bot_id}/view-link/regenerate")

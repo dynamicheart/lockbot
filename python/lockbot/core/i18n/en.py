@@ -204,6 +204,7 @@ MESSAGES = {
     "notify.take_notify_all": "📋 Node {node_key} taken by {user_id}, current usage:\n",
     "notify.wait_time_increased": "Note: wait times have been updated\n\n",
     "idle.warning": (
+        "❗[Low resource utilization]\n\n"
         "Utilization for {resource} has been below {threshold}% for 20 minutes ({utilization}%).\n\n"
         "Resume use within 10 minutes. For 10 extra minutes, mention the bot and send `{command}` in this group."
     ),

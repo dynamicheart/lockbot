@@ -206,9 +206,16 @@ class BotApplicationSummary(BaseModel):
     name: str
 
 
+class IdleSamplingStatus(BaseModel):
+    configured_nodes: int
+    fresh_nodes: int
+
+
 class BotDetail(BotOut):
-    migration_in_progress: bool = False
     """Detail view with sensitive fields (both masked and raw for show/copy)."""
+
+    idle_sampling: IdleSamplingStatus | None = None
+    migration_in_progress: bool = False
 
     owner: str = ""
     owner_role: str = ""

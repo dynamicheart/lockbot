@@ -354,7 +354,7 @@ def test_chat_reminder_and_keep_stay_with_the_holder(inventory, monkeypatch, cha
     (warning,) = messages
     assert warning["header"]["toid"] == [123]
     expected = (
-        "demo dev0 的利用率已连续 20 分钟低于 5% (1.2%)\n\n"
+        "❗【资源利用率偏低】\n\ndemo dev0 的利用率已连续 20 分钟低于 5% (1.2%)\n\n"
         "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `keep demo dev0`。"
     )
     assert warning["body"] == [
@@ -565,5 +565,31 @@ def test_low_utilization_window_follows_the_same_holder(inventory, monkeypatch, 
             else:
                 assert bot.published_snapshot().state["demo"]["current_users"][0]["user_id"] == who
                 assert sent == ["warning"]
+
+    asyncio.run(exercise())
+
+
+def test_sampling_status_tracks_fresh_complete_data_without_a_lock(inventory):
+    manager, targets, now = inventory
+    bot = manager.get_instance(1).bot
+    bot.unlock("alice", "free demo")
+    bot.config.set_val("IDLE_UTILIZATION_CHECK_ENABLED", False)
+    config = policy.ObservationConfig.model_validate({"sources": [source(targets[:1])]})
+    observer = policy.IdleObserver(config, manager, clock=lambda: now)
+    uuid = targets[0]["bot_uuid"]
+    cards = {"dev-a": 12, "dev-b": 0}
+
+    async def exercise():
+        nonlocal now
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: response(now, cards=cards))) as client:
+            assert observer.sampling_status(1, uuid) == {"configured_nodes": 1, "fresh_nodes": 0}
+            await observer.poll_source(0, client)
+            assert observer.sampling_status(1, uuid) == {"configured_nodes": 1, "fresh_nodes": 1}
+            assert observer.sampling_status(1, str(uuid4())) == {"configured_nodes": 0, "fresh_nodes": 0}
+            now += 241
+            assert observer.sampling_status(1, uuid) == {"configured_nodes": 1, "fresh_nodes": 0}
+            del cards["dev-b"]
+            await observer.poll_source(0, client)
+            assert observer.sampling_status(1, uuid) == {"configured_nodes": 1, "fresh_nodes": 0}
 
     asyncio.run(exercise())

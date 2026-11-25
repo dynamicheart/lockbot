@@ -183,6 +183,7 @@ MESSAGES = {
     "notify.take_notify_all": "📋 节点 {node_key} 已被 {user_id} 抢占，当前使用情况:\n",
     "notify.wait_time_increased": "请注意等待时间已增加 \n\n",
     "idle.warning": (
+        "❗【资源利用率偏低】\n\n"
         "{resource} 的利用率已连续 20 分钟低于 {threshold}% ({utilization}%)\n\n"
         "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `{command}`。"
     ),
