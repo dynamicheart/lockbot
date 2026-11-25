@@ -789,7 +789,7 @@ def create_app() -> FastAPI:
     app.include_router(backup_router)
     from lockbot.backend.app.resource_api.discovery import router as discovery_router
     from lockbot.backend.app.resource_api.rate_contract import describe_agent_rate
-    from lockbot.backend.app.resource_api.v2 import commands, metrics, resources, watch  # noqa: F401
+    from lockbot.backend.app.resource_api.v2 import commands, identity_tickets, metrics, resources, watch  # noqa: F401
     from lockbot.backend.app.resource_api.v2.binding import router as agent_v2_router
 
     app.include_router(discovery_router)
