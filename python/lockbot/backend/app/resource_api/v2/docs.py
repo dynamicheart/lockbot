@@ -90,6 +90,15 @@ jq -nc --arg proof "$PROOF" '{proof:$proof}' |
     -H 'Content-Type: application/json' --data-binary @-
 ```
 """,
+    ("post", "/identity-tickets"): """
+使用当前个人 Key 向已登记的服务证明身份。票据有效期不超过两分钟。接收方按自己的策略决定权限。
+
+```sh
+curl -fsS "$LOCKBOT_URL/api/agent/v2/identity-tickets" \\
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \\
+  --data '{"audience":"example-reports"}'
+```
+""",
     ("get", "/bindings"): """
 传个人 v2 Key，返回 `grants`，即此 Key 当前可访问的机器人列表。
 用 `name`、`platform`、`bot_id` 和 `chat_id` 确认来源。
@@ -303,6 +312,16 @@ _JSON_RESPONSES = {
             "existing_key": ("已有 Key 增加群授权", {"status": "confirmed", "grant": _GRANT}),
         },
     ),
+    ("post", "/identity-tickets"): (
+        "200",
+        "为已登记服务签发短期身份票据。",
+        {
+            "issued": (
+                "已签发",
+                {"ticket": "header.payload.signature", "token_type": "Bearer", "expires_at": 1893456120},
+            ),
+        },
+    ),
     ("get", "/bindings"): (
         "200",
         "当前个人 Key 的有效群授权。",
@@ -366,6 +385,11 @@ _JSON_RESPONSES = {
 }
 
 _ERRORS = {
+    ("post", "/identity-tickets"): {
+        "403": "identity_ticket_audience_denied。目标服务未登记。",
+        "404": "identity_tickets_disabled。此部署未开启身份签票。",
+        "503": "identity_ticket_unavailable。签票配置当前不可用。",
+    },
     ("post", "/bindings/{binding_id}/complete"): {
         "404": "binding_unavailable。核对发起时的 ID 和 proof，过期后重新发起绑定。",
         "409": "credential_unavailable。已确认但无法取回 Key。可经原帐号在群内重新确认 reset。",
