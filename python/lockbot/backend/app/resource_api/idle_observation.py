@@ -178,14 +178,16 @@ def _metric_values(payload, nodes):
     return values
 
 
-def _advance(previous, version, holder, now, metrics, devices, source, generation):
+def _fresh_sample_time(metrics, now, max_age):
     observed_at = metrics.get((OBSERVED_AT, None))
-    if (
-        metrics.get((COLLECTOR_OK, None)) != 1
-        or observed_at is None
-        or observed_at > now
-        or now - observed_at > source.max_sample_age_seconds
-    ):
+    if metrics.get((COLLECTOR_OK, None)) == 1 and observed_at is not None and 0 <= now - observed_at <= max_age:
+        return observed_at
+    return None
+
+
+def _advance(previous, version, holder, now, metrics, devices, source, generation):
+    observed_at = _fresh_sample_time(metrics, now, source.max_sample_age_seconds)
+    if observed_at is None:
         return None
     utilization = 0.0
     for device in devices:
@@ -249,6 +251,7 @@ class IdleObserver:
         self.manager = manager
         self.clock = clock
         self._windows = [{} for _ in self.sources]
+        self._sampling = [{} for _ in self.sources]
         self._targets_by_bot = []
         self._recovery_targets = []
         for source in self.sources:
@@ -273,6 +276,19 @@ class IdleObserver:
             for key, evidence in windows.items()
             if evidence.active and evidence.candidate
         }
+
+    def sampling_status(self, bot_id, bot_uuid):
+        """Report recent data coverage for this bot without exposing the source or its credentials."""
+        configured = fresh = 0
+        now = self.clock()
+        for groups, samples in zip(self._targets_by_bot, self._sampling, strict=True):
+            for target in groups.get(bot_id, ()):
+                if str(target.bot_uuid) == bot_uuid:
+                    configured += 1
+                    expires_at = samples.get((bot_id, target.node))
+                    if expires_at is not None and expires_at >= now:
+                        fresh += 1
+        return {"configured_nodes": configured, "fresh_nodes": fresh}
 
     async def _fetch(self, source, client):
         headers = {}
@@ -308,15 +324,17 @@ class IdleObserver:
                 metrics = {}
         now = self.clock()
         current = {}
+        sampling = {}
         if metrics:
             for bot_id, targets in self._targets_by_bot[index].items():
                 try:
                     with self.manager.admit(bot_id, for_read=True) as lease:
                         if lease.health != "error":
-                            self._observe_bot(lease, targets, source, metrics, now, previous, current)
+                            self._observe_bot(lease, targets, source, metrics, now, previous, current, sampling)
                 except (AdmissionFull, BotNotRunning, InstanceRetiring):
                     continue
         self._windows[index] = current
+        self._sampling[index] = sampling
         if (count := sum(row.active and row.candidate for row in current.values())) != sum(
             row.active and row.candidate for row in previous.values()
         ):
@@ -334,20 +352,33 @@ class IdleObserver:
                     if notice.channel == "chat" or notice.group_delivered:
                         await asyncio.to_thread(self.chat_notification, notice, "released")
 
-    def _observe_bot(self, lease, targets, source, metrics, now, previous, current):
+    def _observe_bot(self, lease, targets, source, metrics, now, previous, current, sampling):
         bot = lease.bot
-        if not bot.config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"):
-            return
+        enabled = bot.config.get_val("IDLE_UTILIZATION_CHECK_ENABLED")
         state = bot.published_snapshot().state
         bot_uuid = bot.config.get_val("_LIFECYCLE_BOT_UUID")
         for target in targets:
             samples = metrics.get(target.source_node)
             if not samples or bot_uuid != str(target.bot_uuid):
                 continue
+            unit = state.get(target.node)
+            if unit is None:
+                continue
             inventory = source.nodes[target.source_node]
-            if target.recover_idle and any(
-                (value := samples.get((UTILIZATION, device))) is None or not 0 <= value <= 100 for device in inventory
-            ):
+            complete = all(
+                (value := samples.get((UTILIZATION, device))) is not None and 0 <= value <= 100 for device in inventory
+            )
+            observed_at = _fresh_sample_time(samples, now, source.max_sample_age_seconds)
+            if complete and observed_at is not None:
+                if isinstance(unit, tuple):
+                    mapped = bool(target.cards) and all(
+                        index < len(unit) and unit[index].get("dev_id") == index for index in target.cards
+                    )
+                else:
+                    mapped = not any(metric == UTILIZATION and device not in inventory for metric, device in samples)
+                if mapped:
+                    sampling[target.bot_id, target.node] = observed_at + source.max_sample_age_seconds
+            if not enabled or (target.recover_idle and not complete) or observed_at is None:
                 continue
             for key, version, holder, devices in _scoped_holdings(bot, target, state, inventory, now):
                 if holder is None and key not in previous:
@@ -366,6 +397,7 @@ class IdleObserver:
                 await self.poll_source(index, client)
             except Exception as error:
                 self._windows[index] = {}
+                self._sampling[index] = {}
                 if self.recovery is not None:
                     self.recovery.reconcile(index, {})
                 logger.error("Low-utilization observation source %d failed (%s)", index + 1, type(error).__name__)

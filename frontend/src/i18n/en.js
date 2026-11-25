@@ -129,7 +129,8 @@ export default {
     previous: 'Previous',
     next: 'Next',
     title: 'Credential management',
-    scopeHint: 'Super administrators can issue audit credentials for read-only access to detailed Agent task notes on selected bots.',
+    scopeHint:
+      'Super administrators can issue audit credentials for read-only access to detailed Agent task notes on selected bots.',
     name: 'Name',
     bots: 'Permitted bots',
     lifetime: 'Lifetime',
@@ -926,10 +927,18 @@ export default {
     earlyNotifyOn: 'Early Warning',
     earlyNotifyOff: 'Release on Expiry',
     idleUtilizationCheck: '20-minute low utilization check',
-    idleUtilizationCheckHelp: 'Applies to exclusive resources configured for background sampling.',
-    groupRemindAgentIdle: 'Send low-utilization alerts for Agent locks to the group',
-    groupRemindAgentIdleHelp: 'Mentions the holder and lets them confirm in the group.',
-    groupRemindApiResources: 'Also send API resource reminders to the group',
+    idleUtilizationCheckHelp:
+      'Checks exclusive resources with background sampling. Configure a data source on the bot details page and register sampling targets.',
+    idleSampling: {
+      unconfigured: 'Data source not configured',
+      waiting: 'Waiting for valid samples',
+      partial: 'Partial sampling',
+      ready: 'Data source healthy',
+    },
+    groupRemindAgentIdle: 'Low utilization reminders in chat',
+    groupRemindAgentIdleHelp:
+      'Sends a group reminder for low-utilization Agent locks. The holder can confirm in the group.',
+    groupRemindApiResources: 'Renewal, expiry and queue reminders in chat',
     groupRemindApiResourcesHelp: 'Applies to automatic renewal, expiry, and queue reminders.',
     durationWhitelist: 'Lock Duration Whitelist',
     durationWhitelistHelp: 'Users exempt from MAX_LOCK_DURATION.',

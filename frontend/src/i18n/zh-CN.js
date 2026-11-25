@@ -894,10 +894,18 @@ export default {
     earlyNotifyOn: '提前预警',
     earlyNotifyOff: '到期释放',
     idleUtilizationCheck: '20 分钟低利用率检查',
-    idleUtilizationCheckHelp: '应用于已配置后台采样的独占资源。',
-    groupRemindAgentIdle: 'Agent 锁定的低利用率提醒发到群里',
-    groupRemindAgentIdleHelp: '持有人收到群提醒后，可直接在群里确认保留。',
-    groupRemindApiResources: 'API 操作的资源提醒也发到群里',
+    idleUtilizationCheckHelp:
+      '只检查已接入后台采样的独占资源。未接入时，请在机器人详情中配置数据源，并登记后台采样目标。',
+    idleSampling: {
+      unconfigured: '未配置数据源',
+      waiting: '等待有效采样',
+      partial: '部分采样正常',
+      ready: '数据源正常',
+    },
+    groupRemindAgentIdle: '低利用率群通知',
+    groupRemindAgentIdleHelp:
+      'Agent 锁定的资源利用率偏低时，向群里发送提醒。持有人可直接在群里确认保留。',
+    groupRemindApiResources: '续锁、到期和排队群通知',
     groupRemindApiResourcesHelp: '适用于续锁、到期和排队的自动提醒。',
     durationWhitelist: '锁定时长白名单',
     durationWhitelistHelp: '白名单内的用户不受最大锁定时长限制',
