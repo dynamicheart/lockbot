@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from lockbot.backend.app.bots.node_hardware import WHOLE_MACHINE_TYPES, saved_node_hardware
 
@@ -27,6 +27,31 @@ class AcceleratorInventory(BaseModel):
         return model
 
 
+AttributeText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=160)]
+
+
+class InventoryAttribute(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: ShortText
+    value: AttributeText
+    unit: Annotated[ShortText, StringConstraints(max_length=24)] | None = None
+
+    @field_validator("label", "value", "unit")
+    @classmethod
+    def printable(cls, value):
+        if value is not None and not value.isprintable():
+            raise ValueError("Inventory attributes must be single-line text")
+        return value
+
+
+class DeviceAttributes(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    index: int = Field(strict=True, ge=0, le=255)
+    attributes: list[InventoryAttribute] = Field(min_length=1, max_length=24)
+
+
 class NodeInventory(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -35,6 +60,19 @@ class NodeInventory(BaseModel):
     accelerators: list[AcceleratorInventory] = Field(min_length=1, max_length=256)
     memory_bytes: ByteCount | None = None
     cpu_arch: ShortText | None = None
+    attributes: list[InventoryAttribute] = Field(default_factory=list, max_length=24)
+    devices: list[DeviceAttributes] = Field(default_factory=list, max_length=256)
+
+    @model_validator(mode="after")
+    def validate_attributes(self):
+        if len({device.index for device in self.devices}) != len(self.devices):
+            raise ValueError("Duplicate device index")
+        if len(self.devices) > sum(card.count for card in self.accelerators):
+            raise ValueError("More device entries than observed accelerators")
+        fields = self.model_dump_json(include={"attributes", "devices"}, exclude_none=True)
+        if len(fields.encode()) > 4096:
+            raise ValueError("Node attributes exceed 4096 bytes")
+        return self
 
 
 class InventoryUpdates(BaseModel):
@@ -90,5 +128,12 @@ def update_inventory(raw, previous, node_ids):
                 continue
             if saved.scope == "host" and observation.scope != "host":
                 continue
-        current[node] = observation.model_dump(mode="json")
+        # Preserve the original shape of older uploads when no attributes are supplied.
+        stored = observation.model_dump(mode="json", exclude={"attributes", "devices"})
+        stored.update(
+            observation.model_dump(
+                mode="json", include=observation.model_fields_set & {"attributes", "devices"}, exclude_none=True
+            )
+        )
+        current[node] = stored
     return {"version": 1, "nodes": current}

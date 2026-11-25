@@ -55,7 +55,11 @@ secret store. Omit either optional field to retain its current value, or set it 
         "scope": "host",
         "accelerators": [{"model": "Example accelerator", "count": 4, "memory_bytes_per_card": 103079215104}],
         "memory_bytes": 274877906944,
-        "cpu_arch": "x86_64"
+        "cpu_arch": "x86_64",
+        "attributes": [{"label": "Example setting", "value": "Enabled"}],
+        "devices": [
+          {"index": 0, "attributes": [{"label": "Example capacity", "value": "20", "unit": "units"}]}
+        ]
       }
     }
   }
@@ -64,7 +68,10 @@ secret store. Omit either optional field to retain its current value, or set it 
 
 Use the collector observation time with a timezone. Set scope to `host`, `container` or `unknown`.
 Group cards by model and per-card memory. Omit unknown capacities or architecture rather than guessing.
-Upload only the documented fields. Use the private extension to handle hardware-specific private metadata.
+Optional attributes are single-line text with a display label, value and optional unit. Use
+`attributes` for the node and `devices` for observations tied to a zero-based device index.
+An exact resource lookup can return these attributes to callers authorized for the corresponding
+bot. Register only values intended for those callers.
 
 ## Upload an inventory file
 

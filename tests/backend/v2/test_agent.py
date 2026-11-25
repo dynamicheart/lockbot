@@ -256,8 +256,11 @@ def test_host_inventory_reaches_agent_reads_and_shared_view(
             {"model": "Example Device", "count": 2, "memory_bytes_per_card": 96 * 2**30},
         ]
 
-        def upload(scope, observed_at):
-            sample = {"observed_at": observed_at.isoformat(), "scope": scope, "accelerators": accelerators}
+        attributes = [{"label": "Example setting", "value": "Enabled"}]
+        devices = [{"index": 0, "attributes": [{"label": "Example capacity", "value": "20", "unit": "units"}]}]
+
+        def upload(scope, observed_at, **extra):
+            sample = {"observed_at": observed_at.isoformat(), "scope": scope, "accelerators": accelerators, **extra}
             payload = {
                 "scope": "node_inventory:write",
                 "configuration": {"version": 1, "nodes": {"node-23": sample}},
@@ -271,7 +274,7 @@ def test_host_inventory_reaches_agent_reads_and_shared_view(
         (fallback,) = client.get(resource_path, headers=agent_headers).raise_for_status().json()["rows"]
         assert fallback["hardware"] == old_hardware
 
-        upload("host", stamp)
+        upload("host", stamp, attributes=attributes, devices=devices)
         expected = [{"model": "Example Device", "count": 4}]
         (found,) = client.get(resource_path, headers=agent_headers).raise_for_status().json()["rows"]
         assert found["hardware"] == expected
@@ -282,8 +285,25 @@ def test_host_inventory_reaches_agent_reads_and_shared_view(
             (row,) = client.get(resource_path, headers=agent_headers, params=params).raise_for_status().json()["rows"]
             assert row["hardware"] == expected
 
+        assert "node_attributes" not in found
+        details = (
+            client.get(resource_path, headers=agent_headers, params={"node": "node-23", "fields": "node_attributes"})
+            .raise_for_status()
+            .json()["rows"]
+        )
+        assert details[0]["node_attributes"] == {
+            "observed_at": stamp.isoformat().replace("+00:00", "Z"),
+            "attributes": attributes,
+            "devices": devices,
+        }
+        assert (
+            client.get(resource_path, headers=agent_headers, params={"include_node_attributes": "true"}).status_code
+            == 422
+        )
+
         (shared,) = client.get(shared_path, headers=shared_headers).raise_for_status().json()["resources"]
         assert shared["hardware"] == expected
+        assert "node_attributes" not in shared
     finally:
         manager.stop_bot(bot_id)
 
