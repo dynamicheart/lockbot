@@ -88,6 +88,9 @@ def apply_max_duration_limit(user_list, max_duration, whitelist=None):
     for user_info in user_list:
         if user_info["user_id"] in whitelist:
             continue
+        approved = user_info.get("overnight_cutoff")
+        if isinstance(approved, (int, float)) and user_info["start_time"] + user_info["duration"] <= approved:
+            continue
         final_duration = remaining_duration(user_info["start_time"], user_info["duration"])
         if max_duration > 0 and final_duration > max_duration:
             user_info["duration"] = user_info["duration"] - final_duration + max_duration

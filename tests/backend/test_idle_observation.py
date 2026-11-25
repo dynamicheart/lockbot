@@ -416,3 +416,37 @@ def test_recovery_broadcasts_only_after_commit(inventory, monkeypatch, channel):
             "content": "🤖【机器人自动回收低利用率资源】\n\n用户：alice\n资源：demo\n操作：已释放锁定\n\n",
         }
     ]
+
+
+def test_gateway_observer_uses_scoped_post_and_fails_closed(inventory, monkeypatch):
+    from urllib.parse import parse_qs
+
+    from lockbot.metrics.gateway import validate_query
+
+    manager, targets, started = inventory
+    config = policy.ObservationConfig.model_validate(
+        {"sources": [{**source(targets[:1]), "use_bot_metrics_grant": True}]}
+    )
+    observer = policy.IdleObserver(config, manager, clock=lambda: started)
+    observed = []
+    token = "test-only"
+    monkeypatch.setattr(policy, "_bot_metrics_token", lambda source: token)
+
+    def handler(request):
+        assert request.method == "POST"
+        assert request.headers["Authorization"] == "Bearer test-only"
+        params = parse_qs(request.content.decode())
+        names, nodes = validate_query(params["query"][0], {"host-a"})
+        assert names == {policy.OBSERVED_AT, policy.COLLECTOR_OK, policy.UTILIZATION} and nodes == {"host-a"}
+        observed.append(True)
+        return response(started)
+
+    async def exercise():
+        nonlocal token
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            await observer.poll_source(0, client)
+            token = None
+            await observer.poll_source(0, client)
+        assert observed == [True] and not observer.candidates
+
+    asyncio.run(exercise())

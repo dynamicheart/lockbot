@@ -93,6 +93,7 @@ MESSAGES = {
     "error.duration_must_be_positive": "Duration must be greater than 0\n",
     "error.node_in_use_or_shared": "Node is in use by others or in shared mode\n\n",
     "error.node_exclusive_mode": "Node is in exclusive mode\n\n",
+    "error.overnight_cutoff": "\nOvernight cutoff: {cutoff}.",
     "error.lock_max_duration_exceeded": "Note: consecutive lock cannot exceed {max_duration}\n\n{whitelist_hint}",
     "error.slock_max_duration_exceeded": "Note: consecutive slock cannot exceed {max_duration}\n\n{whitelist_hint}",
     "error.whitelist_hint": "To lock longer, contact @{owner} to be added to the whitelist\n\n",

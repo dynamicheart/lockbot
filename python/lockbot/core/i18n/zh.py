@@ -78,6 +78,7 @@ MESSAGES = {
     "error.duration_must_be_positive": "【申请资源时间应大于0】\n",
     "error.node_in_use_or_shared": "【节点正在被他人使用或处于共享状态】\n\n",
     "error.node_exclusive_mode": "【节点正处于独占状态】\n\n",
+    "error.overnight_cutoff": "\n夜间长锁截止时间为 {cutoff}。",
     "error.lock_max_duration_exceeded": "【注意: 目前禁止连续lock超过{max_duration}】\n\n{whitelist_hint}",
     "error.slock_max_duration_exceeded": "【注意: 目前禁止连续slock超过{max_duration}】\n\n{whitelist_hint}",
     "error.whitelist_hint": "如需长期lock，请联系管理员 @{owner} 申请加入白名单\n\n",

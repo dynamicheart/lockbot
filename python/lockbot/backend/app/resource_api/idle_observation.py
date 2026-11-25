@@ -15,9 +15,14 @@ from uuid import UUID
 import httpx
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from lockbot.backend.app.bots.datasource import agent_metrics_source
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
+from lockbot.backend.app.bots.metrics_access import issue_metrics_access
+from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.resource_api.idle_notifications import IdleChat
 from lockbot.backend.app.resource_api.idle_recovery import IdleRecovery
+from lockbot.metrics.gateway import regex_escape
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +52,7 @@ class Target(BaseModel):
 class Source(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    use_bot_metrics_grant: bool = False
     endpoint: AnyHttpUrl
     token_env: str | None = Field(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     nodes: dict[SourceNode, list[str]] = Field(min_length=1)
@@ -61,6 +67,10 @@ class Source(BaseModel):
             for value in (self.endpoint.username, self.endpoint.password, self.endpoint.query, self.endpoint.fragment)
         ):
             raise ValueError("Metrics endpoint must contain only the service URL")
+        if self.use_bot_metrics_grant:
+            bots = {(target.bot_id, target.bot_uuid) for target in self.targets}
+            if len(bots) != 1 or self.token_env or len(self.nodes) > 64:
+                raise ValueError("Gateway batches require one bot, at most 64 nodes and no static token")
         for devices in self.nodes.values():
             if not devices or not all(devices) or len(devices) != len(set(devices)):
                 raise ValueError("Each monitored node requires an explicit device inventory")
@@ -77,7 +87,31 @@ class Source(BaseModel):
         names = f"{UTILIZATION}|{OBSERVED_AT}|{COLLECTOR_OK}"
         selected = dict.fromkeys(target.source_node for target in self.targets)
         nodes = "|".join(node.replace(".", r"\.") for node in selected)
+        if self.use_bot_metrics_grant:
+            labels = "|".join(regex_escape(node) for node in selected)
+            names = f"^(?:{names})$"
+            nodes = f"^(?:{labels})$"
         return f'{{__name__=~"{names}",node=~{json.dumps(nodes)}}}'
+
+
+def _bot_metrics_token(source):
+    first = source.targets[0]
+    with SessionLocal() as db:
+        bot = db.get(Bot, first.bot_id)
+        if bot is None or bot.is_deleted or bot.uuid != str(first.bot_uuid):
+            return None
+        live = agent_metrics_source(bot)
+        if not live or live["endpoint"] != str(source.endpoint).rstrip("/"):
+            return None
+        for target in source.targets:
+            if live["nodeMapping"].get(target.node) != target.source_node:
+                return None
+            if any(
+                live["deviceMapping"].get(f"{target.node}:dev{idx}") != label for idx, label in target.cards.items()
+            ):
+                return None
+        grant = issue_metrics_access(db, bot, live)
+        return grant["token"] if grant else None
 
 
 class ObservationConfig(BaseModel):
@@ -211,13 +245,20 @@ class IdleObserver:
 
     async def _fetch(self, source, client):
         headers = {}
-        if source.token_env:
-            token = os.environ.get(source.token_env)
+        method = "GET"
+        payload = {"params": {"query": source.query}}
+        if source.use_bot_metrics_grant or source.token_env:
+            if source.use_bot_metrics_grant:
+                token = await asyncio.to_thread(_bot_metrics_token, source)
+                method = "POST"
+                payload = {"data": {"query": source.query, "timeout": "4s"}}
+            else:
+                token = os.environ.get(source.token_env)
             if not token:
                 return {}
             headers = {"Authorization": f"Bearer {token}"}
         url = str(source.endpoint).rstrip("/") + "/api/v1/query"
-        async with client.stream("GET", url, params={"query": source.query}, headers=headers) as reply:
+        async with client.stream(method, url, headers=headers, **payload) as reply:
             reply.raise_for_status()
             body = bytearray()
             async for chunk in reply.aiter_bytes(chunk_size=65536):
