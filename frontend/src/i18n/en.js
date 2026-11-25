@@ -925,6 +925,8 @@ export default {
       'On: warn before expiry without releasing; Off (default): release and notify on expiry',
     earlyNotifyOn: 'Early Warning',
     earlyNotifyOff: 'Release on Expiry',
+    idleUtilizationCheck: '20-minute low utilization check',
+    idleUtilizationCheckHelp: 'Applies to exclusive resources configured for background sampling.',
     groupRemindAgentIdle: 'Send low-utilization alerts for Agent locks to the group',
     groupRemindAgentIdleHelp: 'Mentions the holder and lets them confirm in the group.',
     groupRemindApiResources: 'Also send API resource reminders to the group',

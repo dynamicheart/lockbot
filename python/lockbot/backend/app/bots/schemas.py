@@ -49,8 +49,9 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
         window_settings(v)
     if "FORBID_RELOCK" in v and not isinstance(v["FORBID_RELOCK"], bool):
         errors.append("FORBID_RELOCK must be a boolean")
-    if "GROUP_REMIND_AGENT_IDLE" in v and not isinstance(v["GROUP_REMIND_AGENT_IDLE"], bool):
-        errors.append("GROUP_REMIND_AGENT_IDLE must be a boolean")
+    for key in ("IDLE_UTILIZATION_CHECK_ENABLED", "GROUP_REMIND_AGENT_IDLE"):
+        if key in v and not isinstance(v[key], bool):
+            errors.append(f"{key} must be a boolean")
     if "GROUP_REMIND_API_RESOURCES" in v and not isinstance(v["GROUP_REMIND_API_RESOURCES"], bool):
         errors.append("GROUP_REMIND_API_RESOURCES must be a boolean")
     if "FEISHU_QUERY_PANEL" in v and not isinstance(v["FEISHU_QUERY_PANEL"], bool):

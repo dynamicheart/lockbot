@@ -53,6 +53,8 @@ class IdleChat:
                 if lease.generation != notice.generation:
                     return False
                 bot = lease.bot
+                if not bot.config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"):
+                    return False
                 if notice.channel == "api" and not bot.config.get_val("GROUP_REMIND_AGENT_IDLE"):
                     return False
                 groups = bot.config.get_val("_AUTHORIZED_GROUP_IDS", [])

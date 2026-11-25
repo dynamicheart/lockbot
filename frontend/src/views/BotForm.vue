@@ -516,9 +516,19 @@
               </el-form-item>
             </el-col>
             <el-col :xs="24">
+              <el-form-item :label="$t('botCreate.idleUtilizationCheck')">
+                <el-switch
+                  v-model="advancedConfig.IDLE_UTILIZATION_CHECK_ENABLED"
+                  :aria-label="$t('botCreate.idleUtilizationCheck')"
+                />
+                <div class="cfg-unit">{{ $t('botCreate.idleUtilizationCheckHelp') }}</div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24">
               <el-form-item :label="$t('botCreate.groupRemindAgentIdle')">
                 <el-switch
                   v-model="advancedConfig.GROUP_REMIND_AGENT_IDLE"
+                  :disabled="!advancedConfig.IDLE_UTILIZATION_CHECK_ENABLED"
                   :aria-label="$t('botCreate.groupRemindAgentIdle')"
                 />
                 <div class="cfg-unit">{{ $t('botCreate.groupRemindAgentIdleHelp') }}</div>
@@ -732,6 +742,7 @@ const advancedConfig = reactive({
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
   GROUP_REMIND_API_RESOURCES: false,
+  IDLE_UTILIZATION_CHECK_ENABLED: true,
   GROUP_REMIND_AGENT_IDLE: false,
   FEISHU_MEMBERSHIP_NOTICES: false,
   FEISHU_REACTION_REPLIES: false,
@@ -841,6 +852,7 @@ onMounted(async () => {
           advancedConfig.FEISHU_REACTION_REPLIES = true
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
         advancedConfig.GROUP_REMIND_API_RESOURCES = overrides.GROUP_REMIND_API_RESOURCES === true
+        advancedConfig.IDLE_UTILIZATION_CHECK_ENABLED = overrides.IDLE_UTILIZATION_CHECK_ENABLED !== false
         advancedConfig.GROUP_REMIND_AGENT_IDLE = overrides.GROUP_REMIND_AGENT_IDLE === true
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
         if (Array.isArray(overrides.DURATION_WHITELIST))

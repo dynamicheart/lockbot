@@ -336,6 +336,8 @@ class IdleObserver:
 
     def _observe_bot(self, lease, targets, source, metrics, now, previous, current):
         bot = lease.bot
+        if not bot.config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"):
+            return
         state = bot.published_snapshot().state
         bot_uuid = bot.config.get_val("_LIFECYCLE_BOT_UUID")
         for target in targets:

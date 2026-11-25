@@ -124,6 +124,8 @@ class IdleRecovery:
 
     def confirm(self, bot, bot_id, holder, ref, *, channel, resource=None):
         """Confirm the exact notice from its authenticated holder while the lease is live."""
+        if not bot.config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"):
+            return None
         notices = self.for_holder(holder, {bot_id}, channel=channel)
         notice = next(
             (
@@ -176,7 +178,9 @@ class IdleRecovery:
 
         try:
             with self.manager.admit(bot_id) as lease, operation_attempt(bot_id, "internal", "idle_reclaim"):
-                if lease.generation != notice.generation:
+                if lease.generation != notice.generation or not lease.bot.config.get_val(
+                    "IDLE_UTILIZATION_CHECK_ENABLED"
+                ):
                     return False
                 return lease.bot.reclaim_idle_holding(node, card, notice.holder, notice.version, permit=permit)
         except (AdmissionFull, BotNotRunning, HoldingVersionConflict, InstanceRetiring):

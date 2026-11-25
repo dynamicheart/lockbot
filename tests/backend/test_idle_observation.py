@@ -265,7 +265,7 @@ def test_recovery_waits_for_accepted_reminder_and_post_deadline_samples(inventor
     asyncio.run(exercise())
 
 
-@pytest.mark.parametrize("failure", ["stale", "missing_card", "source_error", "notice_failed"])
+@pytest.mark.parametrize("failure", ["stale", "missing_card", "source_error", "notice_failed", "disabled"])
 def test_recovery_retains_holding_when_evidence_or_delivery_is_missing(inventory, failure):
     manager, targets, _ = inventory
     bot = manager.get_instance(1).bot
@@ -293,6 +293,14 @@ def test_recovery_retains_holding_when_evidence_or_delivery_is_missing(inventory
         async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
             for offset in range(0, 1981, 180):
                 now = start + offset
+                if offset == 1980 and failure == "disabled":
+                    (notice,) = observer.recovery.for_holder("alice", {1}, channel="chat")
+                    bot.config.set_val("IDLE_UTILIZATION_CHECK_ENABLED", False)
+                    assert observer.recovery.confirm(bot, 1, "alice", notice.ref, channel="chat") is None
+                    prior = observer.candidates[(1, "demo", None)]
+                    assert not observer.recovery.reclaim_ready(
+                        {(1, "demo", None): policy.replace(prior, observed_at=now)}, 240
+                    )
                 await observer.poll_source(0, client)
             assert bot.published_snapshot().state["demo"]["current_users"][0]["user_id"] == "alice"
 
