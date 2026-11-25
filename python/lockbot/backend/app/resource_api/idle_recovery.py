@@ -9,7 +9,7 @@ from secrets import token_urlsafe
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
 from lockbot.core.base_bot import HoldingVersionConflict
 from lockbot.core.command_context import operation_attempt
-from lockbot.core.overnight import latest_overnight_cutoff
+from lockbot.core.overnight import latest_overnight_window
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,8 @@ def resource_has_waiter(state, resource, holder):
 
 def idle_check_overnight_cutoff(config, now):
     if config.get_val("OVERNIGHT_PAUSE_IDLE_CHECK"):
-        return latest_overnight_cutoff(config, now)
+        cutoff, _ = latest_overnight_window(config, now)
+        return cutoff
     return None
 
 

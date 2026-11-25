@@ -19,7 +19,7 @@ from lockbot.backend.app.resource_api.snapshot import QUEUE_CLAIM_WINDOW_SECONDS
 from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
 from lockbot.core.bot_instance import _BOT_CLASS_MAP
 from lockbot.core.config import Config
-from lockbot.core.overnight import overnight_cutoff
+from lockbot.core.overnight import LeaseLimit
 
 
 class OvernightRule(BaseModel):
@@ -142,7 +142,7 @@ def current_bot_rules(bot, user_id: str) -> dict:
     maximum = maximum if maximum > 0 else -1
     exempt = user_id in (config.get_val("DURATION_WHITELIST") or [])
     now = int(time.time())
-    cutoff = overnight_cutoff(config, now)
+    limit = LeaseLimit.for_config(config, now, -1 if exempt else maximum)
     # supported_commands is stateless for every bot class (also used by handler seam tests).
     supported = _BOT_CLASS_MAP[bot.bot_type].supported_commands(None)
     return {
@@ -154,13 +154,13 @@ def current_bot_rules(bot, user_id: str) -> dict:
             "timezone": config.get_val("OVERNIGHT_TIMEZONE"),
             "start": config.get_val("OVERNIGHT_START"),
             "end": config.get_val("OVERNIGHT_END"),
-            "cutoff_unix_seconds": cutoff,
+            "cutoff_unix_seconds": limit.cutoff,
         },
         "low_utilization": low_utilization_rule(config, now),
         "default_duration_seconds": config.get_val("DEFAULT_DURATION"),
         "max_lock_duration_seconds": maximum,
         "duration_limit_exempt": exempt,
-        "effective_max_lock_duration_seconds": -1 if exempt or maximum < 0 else max(maximum, (cutoff or now) - now),
+        "effective_max_lock_duration_seconds": limit.remaining_limit,
         "queue_claim_window_seconds": QUEUE_CLAIM_WINDOW_SECONDS if bot.bot_type in {"QUEUE", "QUEUE_DEVICE"} else None,
         "supported_operations": sorted(set(supported) & commands.AGENT_ALLOWED_COMMANDS),
         "allow_user_alias": bool(config.get_val("ALLOW_USER_ALIAS")),

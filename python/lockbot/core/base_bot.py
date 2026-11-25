@@ -20,7 +20,7 @@ from uuid import uuid4
 from lockbot.core.config import Config, normalize_label_settings
 from lockbot.core.i18n import t
 from lockbot.core.message_adapter import ReplyLink
-from lockbot.core.overnight import LeaseLimit, overnight_cutoff
+from lockbot.core.overnight import LeaseLimit
 from lockbot.core.platforms.registry import create_adapter
 from lockbot.core.utils import format_access_mode, format_duration
 
@@ -220,7 +220,7 @@ class BaseLockBot:
         maximum = self.config.get_val("MAX_LOCK_DURATION")
         if user_id in self._duration_whitelist:
             maximum = -1
-        return LeaseLimit(timestamp, maximum, overnight_cutoff(self.config, timestamp) if maximum > 0 else None)
+        return LeaseLimit.for_config(self.config, timestamp, maximum)
 
     def _resource_policy_locked(self, user_id, targets, *, claim_duration=None):
         """Apply bot policy before any mutation; caller holds the state lock."""

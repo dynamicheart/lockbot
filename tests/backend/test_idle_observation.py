@@ -650,8 +650,11 @@ def test_idle_recovery_requires_bot_capacity_pressure_or_a_waiter(inventory, mon
     asyncio.run(exercise())
 
 
+@pytest.mark.parametrize("weekend", [False, True])
 @pytest.mark.parametrize("pause_enabled,poll_at_night", [(True, True), (True, False), (False, True)])
-def test_overnight_pause_restarts_observation_at_morning_cutoff(inventory, monkeypatch, pause_enabled, poll_at_night):
+def test_overnight_pause_restarts_observation_at_morning_cutoff(
+    inventory, monkeypatch, pause_enabled, poll_at_night, weekend
+):
     manager, targets, _ = inventory
     bot = manager.get_instance(1).bot
     bot.unlock("alice", "free demo")
@@ -660,12 +663,12 @@ def test_overnight_pause_restarts_observation_at_morning_cutoff(inventory, monke
         bot.config.set_val("OVERNIGHT_PAUSE_IDLE_CHECK", True)
     bot.config.set_val("OVERNIGHT_START", "23:59")
     bot.config.set_val("OVERNIGHT_END", "00:00")
-    start = int(datetime(2026, 11, 25, 23, 28, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
+    start = int(datetime(2026, 11, 27 if weekend else 25, 23, 28, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
     night_start = start + 31 * 60
-    morning = night_start + 60
+    morning = night_start + (2 * 86400 if weekend else 0) + 60
     now = collected = start
     monkeypatch.setattr("time.time", lambda: now)
-    execute_text_command("alice", "lock demo 1h", bot, source="chat")
+    execute_text_command("alice", f"lock demo {'60h' if weekend else '1h'}", bot, source="chat")
     target = {**targets[0], "recover_idle": True}
     config = policy.ObservationConfig.model_validate({"sources": [source([target])]})
     observer = policy.IdleObserver(config, manager, clock=lambda: now)
