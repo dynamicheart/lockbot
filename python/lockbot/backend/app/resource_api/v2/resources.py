@@ -16,7 +16,7 @@ from lockbot.backend.app.bots.datasource import agent_metrics_source
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring, bot_manager
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import saved_node_access
-from lockbot.backend.app.bots.node_inventory import resource_node_hardware
+from lockbot.backend.app.bots.node_inventory import inventory_document, resource_node_hardware
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.snapshot import QUEUE_CLAIM_WINDOW_SECONDS, build_resources
@@ -46,6 +46,7 @@ _ROW_FIELDS = {
     "unit",
     "label",
     "node_access",
+    "node_attributes",
     "hardware",
     "status",
     "available",
@@ -408,6 +409,9 @@ def list_resources(
     include_node_access: Annotated[
         bool, Query(description="Include registered login addresses for an exact node name or resource reference.")
     ] = False,
+    include_node_attributes: Annotated[
+        bool, Query(description="Include registered attributes for an exact node name or resource reference.")
+    ] = False,
 ):
     """Search native resources within the groups the caller has confirmed."""
     response.headers["Cache-Control"] = "no-store"
@@ -430,6 +434,7 @@ def list_resources(
         fields=fields,
         include_people=include_people,
         include_node_access=include_node_access,
+        include_node_attributes=include_node_attributes,
     )
 
 
@@ -457,6 +462,7 @@ def query_resource_page(
     fields=None,
     include_people=False,
     include_node_access=False,
+    include_node_attributes=False,
     charge_budget=True,
     allow_empty_match=False,
 ):
@@ -471,8 +477,11 @@ def query_resource_page(
             raise api_error("invalid_fields", 422)
         include_people = include_people or bool(selected & {"holders", "queue"})
         include_node_access = include_node_access or "node_access" in selected
+        include_node_attributes = include_node_attributes or "node_attributes" in selected
     if include_node_access and not (node or resource_ref):
         raise api_error("node_access_requires_target", 422)
+    if include_node_attributes and not (node or resource_ref):
+        raise api_error("node_attributes_require_target", 422)
     catalog_only = (
         selected is not None and selected <= _CATALOG_FIELDS and available is None and not mine and view == "list"
     )
@@ -603,6 +612,8 @@ def query_resource_page(
         filters = (*filters, True)
     if include_node_access:
         filters = (*filters, "node_access")
+    if include_node_attributes:
+        filters = (*filters, "node_attributes")
     query_hash = _cursor_hash(filters)
     if cursor:
         prefix, _, anchor = cursor.partition(".")
@@ -613,19 +624,32 @@ def query_resource_page(
             raise api_error("stale_cursor", 409)
         rows = rows[offset:]
     page, size = [], 0
-    addresses = {}
-    if include_node_access and rows:
+    authorized, addresses, attributes = {}, {}, {}
+    if (include_node_access or include_node_attributes) and rows:
         authorized = {grant.public_id: bot.id for grant, bot in groups if grant.public_id in valid}
-        addresses = {
-            record.id: saved_node_access(record)
-            for record in db.execute(
-                select(Bot.id, Bot.node_access_config, Bot.cluster_configs).where(Bot.id.in_(set(authorized.values())))
-            )
-        }
+        nodes_by_bot = {}
+        for row in rows[:limit]:
+            nodes_by_bot.setdefault(authorized[row["grant_ref"]], set()).add(row["node"])
+        columns = [Bot.id]
+        if include_node_access:
+            columns.extend((Bot.node_access_config, Bot.cluster_configs))
+        if include_node_attributes:
+            columns.append(Bot.node_inventory_config)
+        for record in db.execute(select(*columns).where(Bot.id.in_(nodes_by_bot))):
+            if include_node_access:
+                addresses[record.id] = saved_node_access(record)
+            if include_node_attributes:
+                attributes[record.id] = inventory_document(record, nodes_by_bot[record.id])["nodes"]
     max_page_bytes = _MAX_PEOPLE_PAGE_BYTES if include_people else _MAX_PAGE_BYTES
     for row in rows[:limit]:
-        if addresses and (login := addresses.get(authorized[row["grant_ref"]], {}).get(row["node"])):
+        bot_id = authorized.get(row["grant_ref"])
+        if login := addresses.get(bot_id, {}).get(row["node"]):
             row["node_access"] = {key: login[key] for key in ("host", "ip", "port") if key in login}
+        sample = attributes.get(bot_id, {}).get(row["node"], {})
+        if sample.get("attributes") or sample.get("devices"):
+            row["node_attributes"] = {
+                key: sample[key] for key in ("observed_at", "attributes", "devices") if key in sample
+            }
         if row["resource_ref"] in people_data:
             raw, client, observed = people_data[row["resource_ref"]]
             row.update(_resource_people(raw, principal, client, observed))
