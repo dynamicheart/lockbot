@@ -25,8 +25,6 @@ def window_settings(config):
 
 def latest_overnight_cutoff(config, now):
     """Return the end of the latest window that has started, even after it ends."""
-    if not config.get_val("OVERNIGHT_ENABLED"):
-        return None
     start, end, zone = window_settings(
         {k: config.get_val(k) for k in ("OVERNIGHT_START", "OVERNIGHT_END", "OVERNIGHT_TIMEZONE")}
     )
@@ -37,8 +35,10 @@ def latest_overnight_cutoff(config, now):
 
 
 def overnight_cutoff(config, now):
+    if not config.get_val("OVERNIGHT_ENABLED"):
+        return None
     cutoff = latest_overnight_cutoff(config, now)
-    return cutoff if cutoff is not None and now < cutoff else None
+    return cutoff if now < cutoff else None
 
 
 @dataclass(frozen=True)

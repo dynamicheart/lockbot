@@ -21,8 +21,12 @@ from lockbot.backend.app.bots.metrics_access import issue_metrics_access
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.resource_api.idle_notifications import IdleChat
-from lockbot.backend.app.resource_api.idle_recovery import IdleRecovery, has_available_resource, resource_has_waiter
-from lockbot.core.overnight import latest_overnight_cutoff
+from lockbot.backend.app.resource_api.idle_recovery import (
+    IdleRecovery,
+    has_available_resource,
+    idle_check_overnight_cutoff,
+    resource_has_waiter,
+)
 from lockbot.metrics.gateway import regex_escape
 
 logger = logging.getLogger(__name__)
@@ -355,7 +359,7 @@ class IdleObserver:
     def _observe_bot(self, lease, targets, source, metrics, now, previous, current, sampling):
         bot = lease.bot
         enabled = bot.config.get_val("IDLE_UTILIZATION_CHECK_ENABLED")
-        overnight_cutoff = latest_overnight_cutoff(bot.config, now) if enabled else None
+        overnight_cutoff = idle_check_overnight_cutoff(bot.config, now) if enabled else None
         state = bot.published_snapshot().state
         available = has_available_resource(state) if enabled else False
         bot_uuid = bot.config.get_val("_LIFECYCLE_BOT_UUID")

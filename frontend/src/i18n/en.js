@@ -907,7 +907,10 @@ export default {
     maxLockDuration: 'Max Lock Duration',
     overnightLock: 'Overnight leases',
     overnightLockHelp:
-      'With a maximum lock duration set, overnight leases can exceed the usual limit up to the morning cutoff. Low-utilization checks pause overnight and start a fresh window at the cutoff.',
+      'With a maximum lock duration set, overnight leases can exceed the usual limit up to the morning cutoff.',
+    overnightPauseIdleCheck: 'Pause low-utilization checks overnight',
+    overnightPauseIdleCheckHelp:
+      'Pause low-utilization reminders and reclamation overnight. A fresh window starts with the first valid sample after the morning cutoff.',
     overnightStart: 'Start (18:00–23:59)',
     overnightEnd: 'Morning cutoff (00:00–10:00)',
     overnightTimezone: 'Overnight timezone',

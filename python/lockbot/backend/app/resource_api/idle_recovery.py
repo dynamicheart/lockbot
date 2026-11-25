@@ -33,11 +33,17 @@ def resource_has_waiter(state, resource, holder):
     return unit is not None and any(user["user_id"] != holder for user in unit.get("booking_list", ()))
 
 
+def idle_check_overnight_cutoff(config, now):
+    if config.get_val("OVERNIGHT_PAUSE_IDLE_CHECK"):
+        return latest_overnight_cutoff(config, now)
+    return None
+
+
 def idle_actions_allowed(bot, notice, now):
     config = bot.config
     if not config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"):
         return False
-    cutoff = latest_overnight_cutoff(config, now)
+    cutoff = idle_check_overnight_cutoff(config, now)
     if cutoff is not None and notice.since < cutoff:
         return False
     state = bot.published_snapshot().state

@@ -645,12 +645,14 @@ def test_idle_recovery_requires_bot_capacity_pressure_or_a_waiter(inventory, mon
     asyncio.run(exercise())
 
 
-@pytest.mark.parametrize("poll_at_night", [True, False])
-def test_overnight_pause_restarts_observation_at_morning_cutoff(inventory, monkeypatch, poll_at_night):
+@pytest.mark.parametrize("pause_enabled,poll_at_night", [(True, True), (True, False), (False, True)])
+def test_overnight_pause_restarts_observation_at_morning_cutoff(inventory, monkeypatch, pause_enabled, poll_at_night):
     manager, targets, _ = inventory
     bot = manager.get_instance(1).bot
     bot.unlock("alice", "free demo")
-    bot.config.set_val("OVERNIGHT_ENABLED", True)
+    bot.config.set_val("OVERNIGHT_ENABLED", not pause_enabled)
+    if pause_enabled:
+        bot.config.set_val("OVERNIGHT_PAUSE_IDLE_CHECK", True)
     bot.config.set_val("OVERNIGHT_START", "23:59")
     bot.config.set_val("OVERNIGHT_END", "00:00")
     start = int(datetime(2026, 11, 25, 23, 28, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
@@ -676,6 +678,13 @@ def test_overnight_pause_restarts_observation_at_morning_cutoff(inventory, monke
             assert first.review_at == night_start
 
             now = collected = night_start
+            if not pause_enabled:
+                assert observer.recovery.for_holder("alice", {1}, channel="chat") == [first]
+                await observer.poll_source(0, client)
+                assert sent == ["warning", "released"]
+                assert bot.published_snapshot().state["demo"]["status"] == "idle"
+                return
+
             assert not observer.recovery.for_holder("alice", {1}, channel="chat")
             if poll_at_night:
                 await observer.poll_source(0, client)
