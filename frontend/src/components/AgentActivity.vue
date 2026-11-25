@@ -46,8 +46,13 @@
             </div>
             <div class="actor-note">
               <span>{{ platformLabel(row.platform, $t) }}</span>
-              <span v-if="row.version">{{ row.version }}</span>
+              <span v-if="row.bot_name">{{ row.bot_name }}</span>
             </div>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('agentActivity.version')" min-width="80">
+          <template #default="{ row }">
+            <el-tag size="small" type="info" effect="plain">{{ row.version?.toUpperCase() }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column :label="t('agentActivity.authorization')" min-width="110">
@@ -148,6 +153,7 @@ async function refresh() {
     const { data } = await api.get('/admin/agent-activity', {
       params: {
         status: status.value,
+        include_legacy: true,
         page: page.value,
         limit: 20,
       },

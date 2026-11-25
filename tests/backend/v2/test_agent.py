@@ -39,7 +39,11 @@ def test_openapi_versions_and_query_protection(client):
 def test_agent_v2_documentation_links_to_quickstart(client, lang, heading):
     headers = {"Accept-Language": lang}
     directory = client.get("/api/public-docs", headers=headers).raise_for_status().text
-    assert "Agent API v1" in directory and "Agent API v2" in directory
+    assert '<a href="/api/public-docs/agent"><s>Agent API v1</s></a>' in directory
+    assert '<a href="/api/public-docs/agent-v2">Agent API v2</a>' in directory
+    legacy = client.get("/api/public-docs/agent", headers=headers).raise_for_status().text
+    assert "/api/public-openapi.json?scope=agent" in legacy
+    assert "text-decoration: line-through" in legacy
     response = client.get("/api/public-docs/agent-v2", headers=headers).raise_for_status()
     assert response.headers["content-language"] == lang
     document = response.text
@@ -47,9 +51,13 @@ def test_agent_v2_documentation_links_to_quickstart(client, lang, heading):
     assert f'href="{quickstart_path}"' in document
     assert heading in document and 'id="swagger-ui"' in document
     assert "<details" not in document
+    assert "text-decoration: line-through" not in document
     guide = client.get(quickstart_path, headers=headers).raise_for_status()
     assert guide.headers["content-language"] == lang
     assert heading in guide.text and 'id="swagger-ui"' not in guide.text
+    assert '<code class="language-bash">' in guide.text
+    assert 'class="nv"' in guide.text and 'class="s1"' in guide.text
+    assert "cdn.jsdelivr" not in guide.text
     assert all(key in guide.text for key in ("resource_refs", "booking_ref", "Idempotency-Key"))
 
 
@@ -354,6 +362,57 @@ def test_management_activity_identifies_v2_tokens_and_counts_recent_verified_acc
     stats = client.get("/api/public/stats", headers=auth_header).raise_for_status().json()
     assert stats["agent_tokens"] == before["agent_tokens"] + 1
     assert stats["agent_requests_hour"] == before["agent_requests_hour"] + 2
+
+    from datetime import datetime, timedelta
+
+    from lockbot.backend.app.bots.models import Bot
+    from lockbot.backend.app.resource_api.activity import AgentActivity
+    from lockbot.backend.app.resource_auth.models import ResourceBinding
+
+    bot = db_session.get(Bot, bot_id)
+    legacy = ResourceBinding(
+        public_id="legacy-fixture",
+        platform="infoflow",
+        external_user_id="legacy-user",
+        bound_bot_id=bot.id,
+        bound_bot_uuid=bot.uuid,
+        bound_identity_revision=bot.identity_revision,
+        credential_digest="legacy-private-digest",
+    )
+    db_session.add(legacy)
+    db_session.flush()
+    db_session.add(
+        AgentActivity(
+            binding_id=legacy.id,
+            read_requests=2,
+            last_status=200,
+            last_seen_at=datetime.utcnow() - timedelta(minutes=1),
+        )
+    )
+    db_session.commit()
+    for page, expected in ((1, "v2"), (2, "v1")):
+        result = (
+            client.get(path, headers=admin_header, params={"include_legacy": True, "limit": 1, "page": page})
+            .raise_for_status()
+            .json()
+        )
+        assert result["total"] == 2
+        (item,) = result["items"]
+        assert item["version"] == expected
+        assert "sort_key" not in item and "credential_digest" not in item
+        assert item["bot_name"] == ("Versioned statistics" if expected == "v1" else None)
+    assert client.get(path, headers=admin_header).json()["total"] == 1
+
+    legacy.credential_expires_at = datetime.utcnow() - timedelta(seconds=1)
+    db_session.commit()
+    history = (
+        client.get(path, headers=admin_header, params={"include_legacy": True, "status": "history"})
+        .raise_for_status()
+        .json()
+    )
+    (item,) = history["items"]
+    assert item["version"] == "v1" and item["expired"] and not item["active"]
+    assert item["read_requests"] == 2
 
 
 def test_v2_binding_source_capacity_releases_confirmed_slot(client, auth_header, session_factory, monkeypatch):

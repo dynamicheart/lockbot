@@ -534,8 +534,8 @@ export default {
     businessSources: { chat: 'Group messages', agent: 'Agent API', operator: 'OP API' },
 
     allBots: 'All bots with verified traffic',
-    byCredential: 'By credential',
-    byAgentToken: 'By Agent token',
+    byCredential: 'By HTTP caller',
+    byAgentToken: 'Agent tokens',
     groupBy: 'Group by',
     credential: 'User / caller type',
     credentialKinds: {
@@ -1140,10 +1140,11 @@ export default {
     tokens: 'Agent tokens',
 
     title: 'Agent activity',
-    description: 'v2 requests are totaled per token across its authorized bots on this service.',
+    description: 'V1 counts cover one bot. V2 counts cover all bots authorized by the token.',
+    version: 'Version',
     inactive: 'No active grants',
     empty: 'No Agent activity',
-    user: 'User / authorization label',
+    user: 'User',
     labelHelp: 'Caller-declared label; not proof of identity.',
     authorization: 'Authorization',
     revoked: 'Revoked',

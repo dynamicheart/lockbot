@@ -510,8 +510,8 @@ export default {
     businessSources: { chat: '群消息', agent: 'Agent API', operator: 'OP API' },
 
     allBots: '全部有已验证请求的机器人',
-    byCredential: '按凭证',
-    byAgentToken: '按 Agent 令牌',
+    byCredential: '按 HTTP 调用方',
+    byAgentToken: 'Agent 令牌',
     groupBy: '分组方式',
     credential: '用户 / 调用类型',
     credentialKinds: {
@@ -1095,10 +1095,11 @@ export default {
     tokens: 'Agent 令牌',
 
     title: 'Agent 访问情况',
-    description: '统计每个 v2 令牌在本服务的访问，覆盖它授权的所有机器人。',
+    description: 'V1 按机器人统计，V2 合计令牌授权的所有机器人。',
+    version: '版本',
     inactive: '无有效授权',
     empty: '暂无 Agent 访问记录',
-    user: '用户 / 授权备注',
+    user: '用户',
     labelHelp: '备注由调用方自述，不作为身份凭据。',
     authorization: '授权状态',
     revoked: '已撤销',
