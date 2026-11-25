@@ -791,6 +791,21 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
     )
     assert response.status_code == 201, response.text
     bot_id = response.json()["id"]
+    from lockbot.backend.app.bots.node_access import serialize_node_access
+
+    with session_factory() as database:
+        database.get(Bot, bot_id).node_access_config = serialize_node_access(
+            {
+                "node-23": {
+                    "host": "node-23.example.test",
+                    "ip": "192.0.2.41",
+                    "port": 22,
+                    "method": "fixture-private-method",
+                    "note": "fixture-private-note",
+                }
+            }
+        )
+        database.commit()
     manager.start_bot(
         bot_id,
         {
@@ -822,9 +837,21 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
     try:
         alice = connect("alice")
         bob = connect("bob")
+        detail = (
+            client.get(API + "/resources", headers=alice, params={"node": "node-23", "include_node_access": "true"})
+            .raise_for_status()
+            .json()["rows"]
+        )
+        assert len(detail) == 2
+        assert all(
+            row["node_access"] == {"host": "node-23.example.test", "ip": "192.0.2.41", "port": 22} for row in detail
+        )
+        assert all("holding" not in row for row in detail)
+        assert client.get(API + "/resources", headers=alice, params={"include_node_access": "true"}).status_code == 422
         page = client.get(API + "/resources", headers=alice, params={"unit": "card", "model": "P800", "limit": 2})
         assert page.status_code == 200, page.text
         assert len(page.json()["rows"]) == 2
+        assert all("node_access" not in row for row in page.json()["rows"])
         assert page.json()["next_cursor"]
         rest = client.get(
             API + "/resources",

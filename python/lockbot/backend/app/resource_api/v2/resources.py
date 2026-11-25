@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from lockbot.backend.app.bots.datasource import agent_metrics_source
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring, bot_manager
 from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.bots.node_access import saved_node_access
 from lockbot.backend.app.bots.node_inventory import resource_node_hardware
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.resource_api import errors
@@ -44,6 +45,7 @@ _ROW_FIELDS = {
     "device",
     "unit",
     "label",
+    "node_access",
     "hardware",
     "status",
     "available",
@@ -403,6 +405,9 @@ def list_resources(
     cursor: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
     fields: Annotated[str | None, Query(min_length=1, max_length=256)] = None,
     include_people: Annotated[bool, Query(description="Include display names of holders and queued users.")] = False,
+    include_node_access: Annotated[
+        bool, Query(description="Include registered login addresses for an exact node name or resource reference.")
+    ] = False,
 ):
     """Search native resources within the groups the caller has confirmed."""
     response.headers["Cache-Control"] = "no-store"
@@ -424,6 +429,7 @@ def list_resources(
         cursor=cursor,
         fields=fields,
         include_people=include_people,
+        include_node_access=include_node_access,
     )
 
 
@@ -450,6 +456,7 @@ def query_resource_page(
     cursor=None,
     fields=None,
     include_people=False,
+    include_node_access=False,
     charge_budget=True,
     allow_empty_match=False,
 ):
@@ -463,6 +470,9 @@ def query_resource_page(
         if not selected <= _ROW_FIELDS:
             raise api_error("invalid_fields", 422)
         include_people = include_people or bool(selected & {"holders", "queue"})
+        include_node_access = include_node_access or "node_access" in selected
+    if include_node_access and not (node or resource_ref):
+        raise api_error("node_access_requires_target", 422)
     catalog_only = (
         selected is not None and selected <= _CATALOG_FIELDS and available is None and not mine and view == "list"
     )
@@ -591,6 +601,8 @@ def query_resource_page(
         filters = (*filters, ("device", device))
     if include_people:
         filters = (*filters, True)
+    if include_node_access:
+        filters = (*filters, "node_access")
     query_hash = _cursor_hash(filters)
     if cursor:
         prefix, _, anchor = cursor.partition(".")
@@ -601,8 +613,19 @@ def query_resource_page(
             raise api_error("stale_cursor", 409)
         rows = rows[offset:]
     page, size = [], 0
+    addresses = {}
+    if include_node_access and rows:
+        authorized = {grant.public_id: bot.id for grant, bot in groups if grant.public_id in valid}
+        addresses = {
+            record.id: saved_node_access(record)
+            for record in db.execute(
+                select(Bot.id, Bot.node_access_config, Bot.cluster_configs).where(Bot.id.in_(set(authorized.values())))
+            )
+        }
     max_page_bytes = _MAX_PEOPLE_PAGE_BYTES if include_people else _MAX_PAGE_BYTES
     for row in rows[:limit]:
+        if addresses and (login := addresses.get(authorized[row["grant_ref"]], {}).get(row["node"])):
+            row["node_access"] = {key: login[key] for key in ("host", "ip", "port") if key in login}
         if row["resource_ref"] in people_data:
             raw, client, observed = people_data[row["resource_ref"]]
             row.update(_resource_people(raw, principal, client, observed))
