@@ -107,7 +107,8 @@ export default {
     guideSelectTitle: 'Bot administrator',
     guideSelect: 'Choose the bots and permissions, then share the credential privately.',
     guideShareTitle: 'Maintenance Agent',
-    guideShare: 'Register machine addresses, deploy the utilization collector, and connect its data to LockBot.',
+    guideShare:
+      'Register machine addresses, deploy the utilization collector, and connect its data to LockBot.',
     guideUseTitle: 'A user’s own Agent',
     guideUse: 'Check utilization to choose a card. Once acquired, connect using its IP.',
     scopeHint:
@@ -804,7 +805,8 @@ export default {
     ask: 'Ask your Agent',
     example: '“Open my LockBot workbench.”',
     receive: 'Get a sign-in link',
-    receiveDetail: 'Your Agent uses its existing credential to create the link and sends it privately.',
+    receiveDetail:
+      'Your Agent uses its existing credential to create the link and sends it privately.',
     open: 'Open the link and confirm',
     openDetail: 'Confirm in your browser to open the workbench.',
     request:
@@ -916,10 +918,10 @@ export default {
     maxLockDuration: 'Max Lock Duration',
     overnightLock: 'Overnight leases',
     overnightLockHelp:
-      'With a maximum lock duration set, overnight leases can exceed the usual limit up to the morning cutoff.',
+      'Weeknight leases can extend to the morning cutoff. Weekend leases run from Friday evening to Monday morning within the usual limit.',
     overnightPauseIdleCheck: 'Pause low-utilization checks overnight',
     overnightPauseIdleCheckHelp:
-      'Pause low-utilization reminders and reclamation overnight. A fresh window starts with the first valid sample after the morning cutoff.',
+      'Pause reminders and reclamation on weeknights and from Friday evening to Monday morning. A fresh check starts with the first valid sample after the cutoff.',
     overnightStart: 'Start (18:00–23:59)',
     overnightEnd: 'Morning cutoff (00:00–10:00)',
     overnightTimezone: 'Overnight timezone',
@@ -1122,7 +1124,8 @@ export default {
     unnamed: 'Unnamed client',
     sourceIp: 'Last source IP {ip}',
     lastSeen: 'Last seen',
-    ipHelp: 'LockBot reports the source IP it observes. This may be a proxy or a shared network address.',
+    ipHelp:
+      'LockBot reports the source IP it observes. This may be a proxy or a shared network address.',
   },
 
   agentActivity: {

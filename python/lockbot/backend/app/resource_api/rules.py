@@ -26,7 +26,7 @@ class OvernightRule(BaseModel):
     enabled: bool = Field(description="Whether this overnight rule is configured to apply.")
     timezone: str = Field(description="IANA time zone used to interpret the start and end times.")
     start: str = Field(description="Local start time in HH:MM format, inclusive.")
-    end: str = Field(description="Local end time in HH:MM format, exclusive. May fall on the following day.")
+    end: str = Field(description="Local morning cutoff in HH:MM, exclusive. The weekend window ends on Monday.")
     cutoff_unix_seconds: int | None = Field(
         description="End of the current active window as Unix seconds. Null when the window is inactive."
     )
