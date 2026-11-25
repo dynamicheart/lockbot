@@ -265,7 +265,7 @@ def test_recovery_waits_for_accepted_reminder_and_post_deadline_samples(inventor
     asyncio.run(exercise())
 
 
-@pytest.mark.parametrize("failure", ["stale", "missing_card", "source_error", "notice_failed", "renewed"])
+@pytest.mark.parametrize("failure", ["stale", "missing_card", "source_error", "notice_failed"])
 def test_recovery_retains_holding_when_evidence_or_delivery_is_missing(inventory, failure):
     manager, targets, _ = inventory
     bot = manager.get_instance(1).bot
@@ -293,8 +293,6 @@ def test_recovery_retains_holding_when_evidence_or_delivery_is_missing(inventory
         async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
             for offset in range(0, 1981, 180):
                 now = start + offset
-                if offset == 1980 and failure == "renewed":
-                    execute_text_command("alice", "lock demo 10m", bot, source="chat")
                 await observer.poll_source(0, client)
             assert bot.published_snapshot().state["demo"]["current_users"][0]["user_id"] == "alice"
 
@@ -506,3 +504,58 @@ def test_chat_keep_confirms_each_listed_resource(inventory):
     assert text.count("已确认保留") == 2
     assert "unknown 当前没有你的待确认提醒" in text
     assert all(notice.confirmed for notice in observer.recovery.for_holder("alice", {1}, channel="chat"))
+
+
+@pytest.mark.parametrize("action", ["relock", "renew", "new_holder", "busy"])
+def test_low_utilization_window_follows_the_same_holder(inventory, monkeypatch, action):
+    manager, targets, _ = inventory
+    bot = manager.get_instance(1).bot
+    bot.unlock("alice", "free demo")
+    execute_text_command("alice", "lock demo 1h", bot, source="chat")
+    start = bot.published_snapshot().state["demo"]["current_users"][0]["start_time"]
+    now = start
+    collected = start
+    cards = {"dev-a": 0, "dev-b": 0}
+    monkeypatch.setattr("time.time", lambda: now)
+    config = policy.ObservationConfig.model_validate({"sources": [source([{**targets[0], "recover_idle": True}])]})
+    observer = policy.IdleObserver(config, manager, clock=lambda: now)
+    sent = []
+    observer.chat_notification = lambda notice, kind: sent.append(kind) is None
+
+    async def exercise():
+        nonlocal now, collected
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: response(collected, cards=cards))
+        ) as client:
+            for offset in range(0, 1261, 180):
+                now = collected = start + offset
+                await observer.poll_source(0, client)
+            (first,) = observer.recovery.for_holder("alice", {1}, channel="chat")
+            assert first.review_at == start + 1860
+
+            now = collected = start + 1380
+            who = "bob" if action == "new_holder" else "alice"
+            if action != "renew":
+                bot.unlock("alice", "free demo")
+                await observer.poll_source(0, client)
+                assert not observer.recovery.for_holder("alice", {1}, channel="chat")
+                now += 1
+            execute_text_command(who, "lock demo 1h", bot, source="chat")
+            await observer.poll_source(0, client)  # The latest sample predates a fresh acquisition.
+            if action == "busy":
+                cards["dev-a"] = 10
+            for offset in (1500, 1680, 1860):
+                now = collected = start + offset
+                await observer.poll_source(0, client)
+                if offset == 1500 and action in {"relock", "renew"}:
+                    (current,) = observer.recovery.for_holder("alice", {1}, channel="chat")
+                    assert (current.ref, current.review_at) == (first.ref, first.review_at)
+                    assert current.version != first.version
+            if action in {"relock", "renew"}:
+                assert bot.published_snapshot().state["demo"]["status"] == "idle"
+                assert sent == ["warning", "released"]
+            else:
+                assert bot.published_snapshot().state["demo"]["current_users"][0]["user_id"] == who
+                assert sent == ["warning"]
+
+    asyncio.run(exercise())

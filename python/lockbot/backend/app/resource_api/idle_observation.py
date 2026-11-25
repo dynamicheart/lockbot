@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
 from pathlib import Path
 from typing import Annotated
@@ -138,6 +138,7 @@ class IdleEvidence:
     generation: int
     utilization_percent: float
     threshold_percent: float
+    active: bool = True
 
     @property
     def candidate(self):
@@ -182,7 +183,7 @@ def _advance(previous, version, holder, now, metrics, devices, source, generatio
     if (
         metrics.get((COLLECTOR_OK, None)) != 1
         or observed_at is None
-        or not holder["start_time"] <= observed_at <= now
+        or observed_at > now
         or now - observed_at > source.max_sample_age_seconds
     ):
         return None
@@ -192,12 +193,20 @@ def _advance(previous, version, holder, now, metrics, devices, source, generatio
         if value is None or not 0 <= value < source.threshold_percent:
             return None
         utilization = max(utilization, value)
-    since = observed_at
-    if previous is not None and previous.version == version:
-        if observed_at < previous.observed_at:
-            return None
-        if observed_at - previous.observed_at <= source.max_sample_age_seconds:
-            since = previous.since
+    if previous is not None and observed_at < previous.observed_at:
+        return None
+    continuous = (
+        previous is not None
+        and previous.generation == generation
+        and (holder is None or previous.holder == holder["user_id"])
+        and observed_at - previous.observed_at <= source.max_sample_age_seconds
+    )
+    if holder is None or observed_at < holder["start_time"]:
+        # Leave the episode dormant until a fresh sample belongs to a live lock.
+        if continuous and now - previous.observed_at <= source.max_sample_age_seconds:
+            return replace(previous, active=False)
+        return None
+    since = previous.since if continuous else observed_at
     return IdleEvidence(
         version,
         since,
@@ -223,6 +232,9 @@ def _scoped_holdings(bot, target, state, inventory, now):
     else:
         units = ((None, node, inventory),)
     for index, unit, devices in units:
+        if unit.get("status") == "idle":
+            yield (target.bot_id, target.node, index), None, None, devices
+            continue
         holders = unit.get("current_users", ())
         if unit.get("status") == "exclusive" and len(holders) == 1:
             holder = holders[0]
@@ -255,7 +267,12 @@ class IdleObserver:
 
     @property
     def candidates(self):
-        return {key: evidence for windows in self._windows for key, evidence in windows.items() if evidence.candidate}
+        return {
+            key: evidence
+            for windows in self._windows
+            for key, evidence in windows.items()
+            if evidence.active and evidence.candidate
+        }
 
     async def _fetch(self, source, client):
         headers = {}
@@ -300,8 +317,8 @@ class IdleObserver:
                 except (AdmissionFull, BotNotRunning, InstanceRetiring):
                     continue
         self._windows[index] = current
-        if (count := sum(evidence.candidate for evidence in current.values())) != sum(
-            evidence.candidate for evidence in previous.values()
+        if (count := sum(row.active and row.candidate for row in current.values())) != sum(
+            row.active and row.candidate for row in previous.values()
         ):
             logger.info("Low-utilization observation source %d has %d candidates", index + 1, count)
         if self.recovery is not None and self._recovery_targets[index]:
@@ -331,6 +348,8 @@ class IdleObserver:
             ):
                 continue
             for key, version, holder, devices in _scoped_holdings(bot, target, state, inventory, now):
+                if holder is None and key not in previous:
+                    continue
                 if key[2] is None and any(
                     metric == UTILIZATION and device not in devices for metric, device in samples
                 ):

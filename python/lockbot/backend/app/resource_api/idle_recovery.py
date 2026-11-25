@@ -30,6 +30,7 @@ class IdleNotice:
     delivered_at: float | None = None
     group_delivered: bool = False
     confirmed: bool = False
+    active: bool = True
 
     @property
     def confirm_by(self):
@@ -61,7 +62,27 @@ class IdleRecovery:
             created = []
             for resource, row in candidates.items():
                 notice = self._notices.get(resource)
-                if notice is not None and (notice.version, notice.since) == (row.version, row.since):
+                if notice is not None and (notice.holder, notice.since, notice.generation) == (
+                    row.holder,
+                    row.since,
+                    row.generation,
+                ):
+                    current = replace(
+                        notice,
+                        version=row.version,
+                        channel=row.channel,
+                        active=row.active,
+                        utilization_percent=row.utilization_percent,
+                    )
+                    self._notices[resource] = current
+                    if (
+                        row.active
+                        and notice.delivered_at is None
+                        and (not notice.active or notice.channel != row.channel)
+                    ):
+                        created.append(current)
+                    continue
+                if not row.active:
                     continue
                 notice = IdleNotice(
                     token_urlsafe(12),
@@ -83,7 +104,8 @@ class IdleRecovery:
             return [
                 notice
                 for notice in self._notices.values()
-                if notice.holder == holder
+                if notice.active
+                and notice.holder == holder
                 and notice.resource[0] in bot_ids
                 and (notice.channel == channel or channel == "chat" and notice.group_delivered)
             ]
@@ -92,7 +114,7 @@ class IdleRecovery:
         """Begin the confirmation window after a transport accepts the reminder."""
         with self._lock:
             current = self._notices.get(notice.resource)
-            if current is None or current.ref != notice.ref:
+            if current is None or current.ref != notice.ref or not current.active:
                 return None
             if current.delivered_at is None or group and not current.group_delivered:
                 delivered_at = self.clock() if current.delivered_at is None else current.delivered_at
@@ -117,7 +139,7 @@ class IdleRecovery:
         _, node, card = notice.resource
         with bot._lock, self._lock:
             current = self._notices.get(notice.resource)
-            if current is None or current.ref != notice.ref:
+            if current is None or current.ref != notice.ref or not current.active:
                 return None
             now = self.clock()
             version = bot.op_holding_version(bot.state.bot_state, node, card, holder, at=now)
@@ -168,6 +190,8 @@ class IdleRecovery:
         deadline = notice.review_at
         return (
             deadline is not None
+            and notice.active
+            and evidence.active
             and evidence.candidate
             and (notice.version, notice.since) == (evidence.version, evidence.since)
             and deadline <= evidence.observed_at <= now <= evidence.observed_at + max_age
