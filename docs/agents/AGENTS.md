@@ -21,3 +21,8 @@ Agent assistance is practical for preparing configuration, running preflight, ex
 - [OP monitoring and authorized release](../usage/operator-api.md#monitor) covers current holders. Use the Monitor section for current state and the separate history endpoints for past activity. Check `/api/public-docs/op` on the approved deployment for its current contract.
 
 Use the datasource's own read-only access for metrics and the target bot's OP key for operator calls.
+
+## Bot rule discovery
+
+- Running Agents find the lookup command and how to match a resource to its bot in the [v2 Skill](../../python/lockbot/backend/app/agent_skill/v2.md). The service advertises the Skill download and OpenAPI URL in `GET /api/agent/v2/manifest`.
+- On the target service, open `/api/public-docs/agent-v2` and find `GET /api/agent/v2/bindings` for the field guide and response example. Its [operation documentation](../../python/lockbot/backend/app/resource_api/v2/docs.py) and [rule models](../../python/lockbot/backend/app/resource_api/rules.py) are maintained here. Tools can read the same response schema at `/api/agent/v2/openapi.json`.

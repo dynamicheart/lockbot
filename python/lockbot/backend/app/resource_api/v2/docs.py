@@ -7,6 +7,42 @@ _SECOND_RESOURCE = "res_fedcba9876543210fedcba9876543210"
 _BOOKING = "book_0123456789abcdef0123456789abcdef_0123456789abcdef01234567"
 _PROOF = "lbp_example_proof"
 _GRANT = {"grant_ref": "example_grant_ref", "name": "示例机器人", "platform": "feishu", "chat_id": "oc_example"}
+_OVERNIGHT_EXAMPLE = {
+    "enabled": True,
+    "timezone": "Asia/Shanghai",
+    "start": "22:00",
+    "end": "09:00",
+    "cutoff_unix_seconds": None,
+}
+_GRANT_RULES_EXAMPLE = {
+    "lock_rules": {
+        "unit": "card",
+        "default_duration_seconds": 7200,
+        "max_lock_duration_seconds": 86400,
+        "effective_max_lock_duration_seconds": 86400,
+        "max_book_duration_seconds": 86400,
+        "duration_limit_exempt": False,
+        "max_resources_per_user": 4,
+        "claim_window_seconds": 300,
+        "renew_allowed": True,
+        "shared_lock_supported": False,
+        "overnight": _OVERNIGHT_EXAMPLE,
+    },
+    "low_utilization": {
+        "status": "known",
+        "enabled": True,
+        "sampling_required": True,
+        "trigger_any": ["resource_has_waiting_user", "bot_has_no_available_resources"],
+        "observation_seconds": 1200,
+        "confirm_window_seconds": 600,
+        "keep_extension_seconds": 600,
+        "agent_group_notifications": False,
+        "overnight_pause": _OVERNIGHT_EXAMPLE,
+        "thresholds": {"accelerator_utilization_percent": [5.0]},
+        "action_on_timeout": "release",
+        "max_keeps": 1,
+    },
+}
 _CARD = {
     "resource_ref": _RESOURCE,
     "grant_ref": _GRANT["grant_ref"],
@@ -101,10 +137,61 @@ curl -fsS "$LOCKBOT_URL/api/agent/v2/identity-tickets" \\
 """,
     ("get", "/bindings"): """
 传个人 v2 Key，返回 `grants`，即此 Key 当前可访问的机器人列表。
-用 `name`、`platform`、`bot_id` 和 `chat_id` 确认来源。
-每条授权的 `low_utilization` 给出是否开启检查、任一触发条件、夜间暂停设置和确认时限。
-节点或机器人重名时，取对应的 `grant_ref` 来筛选资源。
+用资源的 `grant_ref` 匹配授权，结合 `name`、`platform`、`bot_id` 和 `chat_id` 确认来源。
 `grants: []` 表示当前 Key 没有可用的机器人授权。可以在目标群发起新的绑定。
+
+### 锁定与预约规则 `lock_rules`
+
+| 字段 | 含义 |
+| --- | --- |
+| `unit` | 资源与配额的计量单位。`node` 表示整机，`card` 表示单卡。 |
+| `default_duration_seconds` | 新申请省略时长时使用的默认秒数。 |
+| `max_lock_duration_seconds` | 配置的锁定剩余时长上限，单位为秒。`-1` 表示不限时长。 |
+| `effective_max_lock_duration_seconds` | 调用者当前的有效时长上限，计入豁免和夜间窗口。`-1` 表示不限。 |
+| `max_book_duration_seconds` | 新预约可申请的最长秒数。`-1` 表示不限时长，`null` 表示该机器人不支持预约。 |
+| `duration_limit_exempt` | 当前调用者是否免受时长上限约束。其他配额和权限照常生效。 |
+| `max_resources_per_user` | 每位用户持有与排队合计的不同资源数上限。`-1` 表示此规则不限数量。 |
+| `claim_window_seconds` | 预约就绪通知发出后的领取秒数。`null` 表示不支持预约。 |
+| `renew_allowed` | 是否允许持有人以原锁定模式续锁。实际续锁还要校验该锁状态及有效时长上限。 |
+| `shared_lock_supported` | 机器人是否支持共享锁。具体资源要查看 `operations` 是否含 `slock`。 |
+| `overnight` | 允许申请夜间长锁的时间窗口。结构见下方。 |
+
+- 夜间长锁续期还要遵守该次锁定记录的夜间截止时间。剩余配额取决于当前持有与排队情况。
+- 领取前，以该预约的 `claimable` 与 `claim_expires_at` 为准。
+
+### 低利用率规则 `low_utilization`
+
+| 字段 | 含义 |
+| --- | --- |
+| `status` | `known` 表示已读到机器人配置。实际采样可用性需按资源确认。 |
+| `enabled` | 是否开启对已配置采样的独占资源的低利用率检查。 |
+| `sampling_required` | 检查需要新鲜且有效的加速卡采样。 |
+| `trigger_any` | 满足任一条件即可检查。枚举值见下方。 |
+| `thresholds.accelerator_utilization_percent` | 自动回收目标的阈值集合，单位为百分比。 |
+| `observation_seconds` | 发出提醒前，利用率需要持续低于阈值的最短秒数。 |
+| `confirm_window_seconds` | 从提醒送达起，持有人可执行 `keep` 的秒数。 |
+| `keep_extension_seconds` | 一次有效的 `keep` 为复查截止时间增加的秒数。 |
+| `max_keeps` | 同一条提醒可延长的次数。重复确认同一条提醒不会再延长。 |
+| `action_on_timeout` | `release` 表示复查后可回收，`none` 表示回收关闭，`null` 表示覆盖未知。 |
+| `agent_group_notifications` | Agent 锁的提醒是否也发到群里。关闭时用资源事件订阅读取提醒。 |
+| `overnight_pause` | 暂停低利用率检查的时间窗口。结构见下方。 |
+
+- `resource_has_waiting_user` 表示当前资源有其他用户排队。
+- `bot_has_no_available_resources` 表示同一机器人没有空闲且无排队的资源。
+- 资源的最高卡利用率须低于对应阈值。`thresholds` 为 `null` 表示无可用阈值。具体阈值看资源提醒。
+- 到期释放仍需新鲜的低利用率样本，且至少一个触发条件成立。
+
+### 夜间窗口
+
+`lock_rules.overnight` 和 `low_utilization.overnight_pause` 使用相同结构，分别表示夜间长锁和低利用率暂停。
+
+| 字段 | 含义 |
+| --- | --- |
+| `enabled` | 对应窗口是否启用。 |
+| `timezone` | 解释起止时间所用的 IANA 时区。 |
+| `start` | 本地起始时刻，格式为 `HH:MM`，含起点。 |
+| `end` | 本地结束时刻，格式为 `HH:MM`，不含终点。结束早于起始表示跨午夜。 |
+| `cutoff_unix_seconds` | 当前活跃窗口结束的 Unix 秒时间戳。`null` 表示此刻无活跃窗口。 |
 
 ```sh
 curl -fsS "$LOCKBOT_URL/api/agent/v2/bindings" -H "Authorization: Bearer $KEY"
@@ -330,7 +417,7 @@ _JSON_RESPONSES = {
         "200",
         "当前个人 Key 的有效群授权。",
         {
-            "bound": ("有一个群授权", {"grants": [{**_GRANT, "bot_id": 42}]}),
+            "bound": ("有一个群授权及其规则", {"grants": [{**_GRANT, "bot_id": 42, **_GRANT_RULES_EXAMPLE}]}),
             "empty": ("尚无有效授权", {"grants": []}),
         },
     ),
