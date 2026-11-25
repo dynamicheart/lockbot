@@ -677,6 +677,8 @@ def test_personal_key_adds_grants_only_for_confirmed_identity(client, auth_heade
     schema = client.get(API + "/openapi.json").json()
     assert schema["components"]["securitySchemes"]["PersonalKey"]["bearerFormat"] == "lbv2_…"
     assert schema["paths"][API + "/commands"]["post"]["security"] == [{"PersonalKey": []}]
+    assert "lock_rules" in schema["components"]["schemas"]["BindingRuleGrant"]["properties"]
+    assert "thresholds" in schema["components"]["schemas"]["BindingLowUtilizationRule"]["properties"]
     assert all(path.startswith(API + "/") for path in schema["paths"])
     first_bot = make_bot(client, auth_header, "first")
     second_bot = make_bot(client, auth_header, "second")
@@ -700,7 +702,14 @@ def test_personal_key_adds_grants_only_for_confirmed_identity(client, auth_heade
     wrong_sender = issue(client, key)
     chat(second_bot, wrong_sender, sender="bob")
     assert finish(client, wrong_sender).json() == {"status": "pending"}
-    assert [x["name"] for x in client.get(API + "/bindings", headers=bearer(key)).json()["grants"]] == ["first"]
+    grants = client.get(API + "/bindings", headers=bearer(key)).raise_for_status().json()["grants"]
+    assert [x["name"] for x in grants] == ["first"]
+    assert grants[0]["lock_rules"]["unit"] == "node"
+    assert grants[0]["lock_rules"]["claim_window_seconds"] is None
+    assert grants[0]["lock_rules"]["max_book_duration_seconds"] is None
+    assert grants[0]["lock_rules"]["shared_lock_supported"] is True
+    assert grants[0]["low_utilization"]["thresholds"] is None
+    assert grants[0]["low_utilization"]["max_keeps"] == 1
 
     second = wrong_sender
     chat(second_bot, second)

@@ -103,6 +103,16 @@ curl -fsS "$LOCKBOT_URL/api/agent/v2/identity-tickets" \\
 传个人 v2 Key，返回 `grants`，即此 Key 当前可访问的机器人列表。
 用 `name`、`platform`、`bot_id` 和 `chat_id` 确认来源。
 每条授权的 `low_utilization` 给出是否开启检查、任一触发条件、夜间暂停设置和确认时限。
+
+使用资源的 `grant_ref` 匹配授权。读取 `lock_rules` 查看配置的锁定上限、当前调用者的有效上限、
+预约时长和领取窗口，以及共享和续锁能力。时长以秒为单位，`-1` 表示不限。
+`max_resources_per_user` 是该机器人下持有与排队的合计上限，按不同资源单位计数。
+领取前以该预约的 `claimable` 和 `claim_expires_at` 为准。
+
+`sampling_required` 表示触发检查需要新鲜采样。阈值可能按数据源变化，`thresholds` 仅汇总已配置的
+自动回收目标，实际通知会附上该资源使用的阈值。`action_on_timeout=release` 仍要求到期后有新鲜的
+低利用率样本和触发条件。`max_keeps` 按同一条提醒计数。`agent_group_notifications=false` 时
+Agent 锁的提醒通过资源事件查询。`overnight_pause.cutoff_unix_seconds` 是当前暂停的结束时间，未暂停时为 null。
 节点或机器人重名时，取对应的 `grant_ref` 来筛选资源。
 `grants: []` 表示当前 Key 没有可用的机器人授权。可以在目标群发起新的绑定。
 

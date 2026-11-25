@@ -61,9 +61,19 @@ def low_utilization_rule(config, now):
     }
 
 
-def current_low_utilization_rule(bot):
-    config = Config({**json.loads(bot.config_overrides or "{}"), "BOT_TYPE": bot.bot_type})
-    return low_utilization_rule(config, int(time.time()))
+class IdleThresholds(BaseModel):
+    accelerator_utilization_percent: list[float] = Field(
+        description="Configured thresholds for recovery targets. The highest device sample must stay below threshold."
+    )
+
+
+class BindingLowUtilizationRule(LowUtilizationRule):
+    status: Literal["known"] = "known"
+    thresholds: IdleThresholds | None
+    action_on_timeout: Literal["release", "none"] | None = Field(
+        description="Release requires fresh low-utilization evidence and a trigger. Null means unknown coverage."
+    )
+    max_keeps: int = Field(description="Maximum extensions per notice. Repeated keep calls do not extend it again.")
 
 
 class PollMinimumSeconds(BaseModel):
@@ -148,4 +158,68 @@ def current_bot_rules(bot, user_id: str) -> dict:
             "discovery": resource_tier_gate.discovery,
         },
         "api_max_machines_per_user": commands.RESOURCE_API_MAX_HELD_PER_IDENTITY,
+    }
+
+
+class BindingLockRules(BaseModel):
+    unit: Literal["node", "card"]
+    default_duration_seconds: int
+    max_lock_duration_seconds: int = Field(description="Configured ceiling; -1 means unlimited.")
+    effective_max_lock_duration_seconds: int = Field(
+        description="Current caller ceiling, accounting for duration exemption and the current overnight window."
+    )
+    max_book_duration_seconds: int | None = Field(
+        description="Current maximum duration for a new booking; null when this bot does not support booking."
+    )
+    duration_limit_exempt: bool
+    max_resources_per_user: int = Field(
+        description="Combined held and queued resource cap per user, counting distinct units. -1 means unlimited."
+    )
+    claim_window_seconds: int | None = Field(description="Time to claim a notified, ready booking.")
+    renew_allowed: bool = Field(description="Whether this bot permits same-mode renewal of an existing eligible lock.")
+    shared_lock_supported: bool = Field(description="Bot supports shared locking. Eligibility varies by resource.")
+    overnight: OvernightRule
+
+
+def binding_rules(bot, user_id: str, observer) -> dict:
+    policy = current_bot_rules(bot, user_id)
+    maximum = policy["effective_max_lock_duration_seconds"]
+    claim_window = policy["queue_claim_window_seconds"]
+    thresholds = sorted(
+        {
+            source.threshold_percent
+            for source in getattr(observer, "sources", ())
+            if any(
+                target.bot_id == bot.id and str(target.bot_uuid) == str(bot.uuid) and target.recover_idle
+                for target in source.targets
+            )
+        }
+    )
+    low = policy["low_utilization"]
+    return {
+        "lock_rules": {
+            **{
+                key: policy[key]
+                for key in (
+                    "default_duration_seconds",
+                    "max_lock_duration_seconds",
+                    "effective_max_lock_duration_seconds",
+                    "duration_limit_exempt",
+                    "max_resources_per_user",
+                    "overnight",
+                )
+            },
+            "unit": policy["resource_unit"],
+            "max_book_duration_seconds": maximum if claim_window is not None else None,
+            "claim_window_seconds": claim_window,
+            "renew_allowed": not policy["forbid_relock"],
+            "shared_lock_supported": "slock" in policy["supported_operations"],
+        },
+        "low_utilization": {
+            **low,
+            "status": "known",
+            "thresholds": {"accelerator_utilization_percent": thresholds} if thresholds else None,
+            "action_on_timeout": ("release" if thresholds else None) if low["enabled"] else "none",
+            "max_keeps": 1,
+        },
     }

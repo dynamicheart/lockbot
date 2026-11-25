@@ -12,7 +12,7 @@ from lockbot.backend.app.resource_api.skill import _deployment_origin, _zip_skil
 
 SKILL_NAME = "lockbot"
 # Bump when releasing changes to the Skill instructions or bundled metadata.
-SKILL_VERSION = "1.0.2"
+SKILL_VERSION = "1.0.6"
 MANIFEST_URL = "/api/agent/v2/manifest"
 SKILL_PATH = "/skill/lockbot.zip"
 SKILL_URL = f"/api/agent/v2{SKILL_PATH}"
