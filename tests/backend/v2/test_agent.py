@@ -402,6 +402,11 @@ def test_management_activity_identifies_v2_tokens_and_counts_recent_verified_acc
         assert "sort_key" not in item and "credential_digest" not in item
         assert item["bot_name"] == ("Versioned statistics" if expected == "v1" else None)
     assert client.get(path, headers=admin_header).json()["total"] == 1
+    for version in ("v1", "v2"):
+        filtered = client.get(path, headers=admin_header, params={"version": version, "limit": 1}).raise_for_status()
+        assert filtered.json()["total"] == 1
+        (item,) = filtered.json()["items"]
+        assert item["version"] == version
 
     legacy.credential_expires_at = datetime.utcnow() - timedelta(seconds=1)
     db_session.commit()
@@ -413,6 +418,11 @@ def test_management_activity_identifies_v2_tokens_and_counts_recent_verified_acc
     (item,) = history["items"]
     assert item["version"] == "v1" and item["expired"] and not item["active"]
     assert item["read_requests"] == 2
+    for version, status in (("v1", "active"), ("v2", "history")):
+        filtered = client.get(
+            path, headers=admin_header, params={"version": version, "status": status, "include_legacy": True}
+        ).raise_for_status()
+        assert filtered.json()["total"] == 0
 
 
 def test_v2_binding_source_capacity_releases_confirmed_slot(client, auth_header, session_factory, monkeypatch):
@@ -873,8 +883,10 @@ def test_queue_timing_distinguishes_join_time_and_claim_window():
 
 def test_agent_v2_resources_commands_and_queue(client, auth_header, session_factory, monkeypatch, tmp_path):
     import json
+    from contextlib import closing
 
     import jwt
+    from fastapi.testclient import TestClient
     from lockbot.backend.app.bots.manager import BotManager
     from lockbot.backend.app.bots.models import Bot
 
@@ -926,7 +938,7 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
         chat(bot_id, challenge, sender=actor)
         return bearer(finish(client, challenge).json()["credential"])
 
-    def command(headers, operation, *refs, duration=None, booking=None, idem=None):
+    def command(headers, operation, *refs, duration=None, booking=None, idem=None, connection=client):
         body = {"operation": operation}
         if refs:
             body["resource_refs"] = list(refs)
@@ -936,7 +948,7 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
             body["booking_ref"] = booking
         if idem:
             headers = {**headers, "Idempotency-Key": idem}
-        return client.post(API + "/commands", headers=headers, json=body)
+        return connection.post(API + "/commands", headers=headers, json=body)
 
     try:
         alice = connect("alice")
@@ -1012,7 +1024,8 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
         ).raise_for_status()
         assert {row["node"] for row in truncated_catalog.json()["rows"]} == {"node-24"}
         client.post(API + "/commands", headers=alice, json={**label_request, "label": ""}).raise_for_status()
-        locked = command(alice, "lock", ref_a, ref_b, duration="30m", idem="once")
+        with closing(TestClient(client.app, client=("192.0.2.42", 50000))) as agent_client:
+            locked = command(alice, "lock", ref_a, ref_b, duration="30m", idem="once", connection=agent_client)
         assert locked.status_code == 200, locked.text
         assert {r["resource_ref"] for r in locked.json()["resources"]} == {ref_a, ref_b}
 
@@ -1108,6 +1121,23 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
         free_ref = refs["node-23", 0]
         conflict = command(bob, "lock", free_ref, ref_a, duration="30m")
         assert conflict.status_code == 409
+        history_url = f"/api/bots/{bot_id}/agent-history"
+        history = client.get(history_url, headers=auth_header, params={"limit": 4}).raise_for_status().json()["items"]
+        assert [item["api_version"] for item in history] == [2, 2, 2, 2]
+        assert [(item["actor"]["external_user_id"], item["outcome"]) for item in history] == [
+            ("bob", "rejected"),
+            ("alice", "rejected"),
+            ("alice", "replayed"),
+            ("alice", "applied"),
+        ]
+        assert all(item["command"] == "lock" and "credential_ref" not in item for item in history)
+        assert history[0]["http_status"] == 409
+        assert "source_ip" not in history[2]
+        assert history[3]["source_ip"] == "192.0.2.42"
+        assert history[3]["requested_resources"] == [
+            {"resource_id": "node-23", "device_ids": [1]},
+            {"resource_id": "node-24", "device_ids": [0]},
+        ]
         assert client.get(API + "/resources", headers=bob, params={"mine": True}).json()["rows"] == []
 
         booked = client.post(

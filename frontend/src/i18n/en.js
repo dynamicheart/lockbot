@@ -368,21 +368,24 @@ export default {
 
     resource: 'Resource',
     title: 'Agent history',
-    search: 'Search user, operation or visible task',
+    search: 'Search user, source IP, operation or task',
     retention:
       'Private operation files are size-rotated (up to 10 × 5 MiB). Pages scan at most 1 MiB; filtered pages can be empty with more history available. Refresh if older files have rotated away. Dispatch does not prove the requested resource operation succeeded.',
     error: 'History unavailable or cursor expired; refresh to reload.',
     time: 'Time',
     user: 'User',
+    sourceIp: 'Source IP',
     operation: 'Operation',
     task: 'Task',
     outcome: 'Processing result',
     previous: 'Previous',
     next: 'Next',
+    page: 'Page {page}',
     outcomes: {
       uncertain: 'Outcome uncertain',
       dispatched: 'Dispatched',
       applied: 'Applied',
+      replayed: 'Reused previous result',
       rejected: 'Rejected',
       may_have_executed: 'Outcome uncertain',
     },
@@ -1142,6 +1145,7 @@ export default {
     title: 'Agent activity',
     description: 'V1 counts cover one bot. V2 counts cover all bots authorized by the token.',
     version: 'Version',
+    allVersions: 'All versions',
     inactive: 'No active grants',
     empty: 'No Agent activity',
     user: 'User',
@@ -1158,7 +1162,7 @@ export default {
     counting: 'How counts work',
     countingHelp:
       'HTTP attempts, not successful resource changes. Refused includes throttled; both are already counted in reads/writes. Revoked authorizations retain historical counts. Not revoked does not guarantee that an authorization is unexpired or usable.',
-    error: 'Could not refresh Agent activity. Previously loaded records are shown.',
+    error: 'Could not load Agent activity.',
   },
   // === Bot Card ===
   botCard: {

@@ -20,6 +20,7 @@ from lockbot.backend.app.database import Base, get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.commands import AGENT_ALLOWED_COMMANDS
+from lockbot.backend.app.resource_api.event_log import EventActor, begin_event
 from lockbot.backend.app.resource_api.notifications import notification_target, notify_group, send_queue_delay
 from lockbot.backend.app.resource_api.resources import snapshot_cache
 from lockbot.backend.app.resource_api.snapshot import QUEUE_CLAIM_WINDOW_SECONDS
@@ -225,7 +226,7 @@ class AllocatorCommand:
             self.result.append(item)
 
 
-def _execute(bot, allocator, principal, body, refs, db, result, idle_recovery=None):
+def _execute(bot, allocator, principal, body, refs, db, result, event, idle_recovery=None):
     by_ref = {row.ref: row for row in db.scalars(select(ResourceIdentity).where(ResourceIdentity.ref.in_(refs)))}
     configured = config_units(bot)
     if any(ref not in by_ref or by_ref[ref].bot_id != bot.id for ref in refs):
@@ -235,6 +236,9 @@ def _execute(bot, allocator, principal, body, refs, db, result, idle_recovery=No
         raise api_error("resource_unavailable", 404)
     if any((row.slot != NODE) != (bot.bot_type in CARD_BOTS) for row in rows):
         raise api_error("resource_unavailable", 404)
+    event["requested_resources"] = [
+        {"resource_id": row.node, **({"device_ids": [row.slot]} if row.slot != NODE else {})} for row in rows
+    ]
     if body.booking_ref is not None and "book" not in allocator.supported_commands():
         raise api_error("command_not_supported", 422)
 
@@ -378,6 +382,18 @@ def execute_command(
     try:
         with bot_manager.admit(bot_id) as lease, authority_guard(bot_id, platform=platform, external_user_id=user_id):
             principal, _, bot = fresh_grant(db, request, principal_id, grant_id)
+            request.state.v2_event_actor = EventActor(
+                bot_id=bot_id, platform=platform, external_user_id=user_id, binding_public_id=principal_id
+            )
+            event = begin_event(
+                request,
+                bot=bot,
+                operation="command",
+                command=body.operation,
+                task_category=body.task_category,
+                api_version=2,
+            )
+            event["requested_resources"] = refs
             receipt = None
             if idempotency_key:
                 excluded = {"label"} if body.label is None else set()
@@ -387,8 +403,14 @@ def execute_command(
                     excluded.add("task_category")
                 serialized = body.model_dump_json(exclude=excluded)
                 body_digest = hashlib.sha256(serialized.encode()).hexdigest()
-                receipt, replay = _start_receipt(db, principal_id, idempotency_key, body_digest)
+                try:
+                    receipt, replay = _start_receipt(db, principal_id, idempotency_key, body_digest)
+                except HTTPException as exc:
+                    if exc.detail == {"code": "may_have_executed"}:
+                        event["stage"] = "dispatching"
+                    raise
                 if replay is not None:
+                    event["stage"] = "replayed"
                     return replay
             try:
                 observer = getattr(request.app.state, "idle_observer", None)
@@ -401,6 +423,7 @@ def execute_command(
                         refs,
                         db,
                         result,
+                        event,
                         idle_recovery=observer.recovery if observer else None,
                     )
                 if not bot_manager.lease_is_current(lease):
@@ -410,9 +433,14 @@ def execute_command(
             except HTTPException as exc:
                 status, payload = exc.status_code, exc.detail
             except Exception:
+                event["stage"] = "dispatching"
                 logger.exception("Agent v2 command outcome unavailable")
                 db.rollback()
                 raise api_error("may_have_executed", 503) from None
+            if status == 200:
+                event["stage"] = "committed"
+            elif payload == {"code": "may_have_executed"}:
+                event["stage"] = "dispatching"
             if receipt is not None:
                 receipt.status, receipt.payload = status, json.dumps(payload)
                 try:
