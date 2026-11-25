@@ -23,20 +23,22 @@ def window_settings(config):
     return time.fromisoformat(start), time.fromisoformat(end), zone
 
 
-def overnight_cutoff(config, now):
+def latest_overnight_cutoff(config, now):
+    """Return the end of the latest window that has started, even after it ends."""
     if not config.get_val("OVERNIGHT_ENABLED"):
         return None
     start, end, zone = window_settings(
         {k: config.get_val(k) for k in ("OVERNIGHT_START", "OVERNIGHT_END", "OVERNIGHT_TIMEZONE")}
     )
-    local = datetime.fromtimestamp(now, zone)
-    # Check actual instants, including a repeated hour during a DST transition.
-    for day in (local.date(), local.date() - timedelta(days=1)):
-        opened = datetime.combine(day, start, zone).timestamp()
-        closed = datetime.combine(day + timedelta(days=1), end, zone).timestamp()
-        if opened <= now < closed:
-            return int(closed)
-    return None
+    day = datetime.fromtimestamp(now, zone).date()
+    if now < datetime.combine(day, start, zone).timestamp():
+        day -= timedelta(days=1)
+    return int(datetime.combine(day + timedelta(days=1), end, zone).timestamp())
+
+
+def overnight_cutoff(config, now):
+    cutoff = latest_overnight_cutoff(config, now)
+    return cutoff if cutoff is not None and now < cutoff else None
 
 
 @dataclass(frozen=True)

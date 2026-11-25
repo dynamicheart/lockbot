@@ -906,6 +906,8 @@ export default {
       'Default duration when user does not specify, in seconds. Default: 7200 (2h)',
     maxLockDuration: 'Max Lock Duration',
     overnightLock: 'Overnight leases',
+    overnightLockHelp:
+      'With a maximum lock duration set, overnight leases can exceed the usual limit up to the morning cutoff. Low-utilization checks pause overnight and start a fresh window at the cutoff.',
     overnightStart: 'Start (18:00–23:59)',
     overnightEnd: 'Morning cutoff (00:00–10:00)',
     overnightTimezone: 'Overnight timezone',

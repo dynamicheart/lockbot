@@ -446,8 +446,18 @@
               </el-form-item>
             </el-col>
             <el-col :span="24">
-              <el-form-item :label="$t('botCreate.overnightLock')">
-                <el-switch v-model="advancedConfig.OVERNIGHT_ENABLED" />
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.overnightLock') }}
+                  <el-tooltip :content="$t('botCreate.overnightLockHelp')" placement="top">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch
+                  id="overnight-lock"
+                  v-model="advancedConfig.OVERNIGHT_ENABLED"
+                  :aria-label="$t('botCreate.overnightLock')"
+                />
               </el-form-item>
             </el-col>
             <template v-if="advancedConfig.OVERNIGHT_ENABLED">

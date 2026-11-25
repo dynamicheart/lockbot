@@ -22,6 +22,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.resource_api.idle_notifications import IdleChat
 from lockbot.backend.app.resource_api.idle_recovery import IdleRecovery
+from lockbot.core.overnight import latest_overnight_cutoff
 from lockbot.metrics.gateway import regex_escape
 
 logger = logging.getLogger(__name__)
@@ -355,6 +356,7 @@ class IdleObserver:
     def _observe_bot(self, lease, targets, source, metrics, now, previous, current, sampling):
         bot = lease.bot
         enabled = bot.config.get_val("IDLE_UTILIZATION_CHECK_ENABLED")
+        overnight_cutoff = latest_overnight_cutoff(bot.config, now) if enabled else None
         state = bot.published_snapshot().state
         bot_uuid = bot.config.get_val("_LIFECYCLE_BOT_UUID")
         for target in targets:
@@ -380,14 +382,19 @@ class IdleObserver:
                     sampling[target.bot_id, target.node] = observed_at + source.max_sample_age_seconds
             if not enabled or (target.recover_idle and not complete) or observed_at is None:
                 continue
+            if overnight_cutoff is not None and observed_at < overnight_cutoff:
+                continue
             for key, version, holder, devices in _scoped_holdings(bot, target, state, inventory, now):
-                if holder is None and key not in previous:
+                prior = previous.get(key)
+                if prior is not None and overnight_cutoff is not None and prior.since < overnight_cutoff:
+                    prior = None
+                if holder is None and prior is None:
                     continue
                 if key[2] is None and any(
                     metric == UTILIZATION and device not in devices for metric, device in samples
                 ):
                     continue
-                evidence = _advance(previous.get(key), version, holder, now, samples, devices, source, lease.generation)
+                evidence = _advance(prior, version, holder, now, samples, devices, source, lease.generation)
                 if evidence is not None:
                     current[key] = evidence
 

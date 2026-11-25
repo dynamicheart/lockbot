@@ -184,7 +184,7 @@ MESSAGES = {
     "notify.wait_time_increased": "请注意等待时间已增加 \n\n",
     "idle.warning": (
         "❗【资源利用率偏低】\n\n"
-        "{resource} 的利用率已连续 20 分钟低于 {threshold}% ({utilization}%)\n\n"
+        "{resource} 的利用率已连续 20 分钟低于 {threshold}% ({utilization}%)\n"
         "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `{command}`。"
     ),
     "idle.confirmed": "✅【已确认保留】\n\n{resource} 将于 {time} 重新检查利用率。",

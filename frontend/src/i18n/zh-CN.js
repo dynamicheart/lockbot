@@ -875,6 +875,8 @@ export default {
     defaultDurationHelp: '用户未指定时长时的默认值，单位秒，默认 7200（2小时）',
     maxLockDuration: '最大锁定时长',
     overnightLock: '夜间长锁',
+    overnightLockHelp:
+      '设有最大锁定时长时，夜间可申请超过常规上限的锁，最晚锁到次日截止。夜间暂停低利用率检查，次日截止后重新计时。',
     overnightStart: '开始时间（18:00–23:59）',
     overnightEnd: '次日截止（00:00–10:00）',
     overnightTimezone: '夜间长锁时区',

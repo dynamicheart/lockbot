@@ -9,11 +9,19 @@ from secrets import token_urlsafe
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
 from lockbot.core.base_bot import HoldingVersionConflict
 from lockbot.core.command_context import operation_attempt
+from lockbot.core.overnight import latest_overnight_cutoff
 
 logger = logging.getLogger(__name__)
 
 CONFIRMATION_SECONDS = 10 * 60
 EXTRA_SECONDS = 10 * 60
+
+
+def idle_actions_allowed(config, now, since):
+    if not config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"):
+        return False
+    cutoff = latest_overnight_cutoff(config, now)
+    return cutoff is None or since >= cutoff
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +109,7 @@ class IdleRecovery:
 
     def for_holder(self, holder, bot_ids, *, channel):
         with self._lock:
-            return [
+            notices = [
                 notice
                 for notice in self._notices.values()
                 if notice.active
@@ -109,6 +117,13 @@ class IdleRecovery:
                 and notice.resource[0] in bot_ids
                 and (notice.channel == channel or channel == "chat" and notice.group_delivered)
             ]
+        now = self.clock()
+        return [
+            notice
+            for notice in notices
+            if (instance := self.manager.get_instance(notice.resource[0])) is not None
+            and idle_actions_allowed(instance.bot.config, now, notice.since)
+        ]
 
     def delivered(self, notice, *, group=False):
         """Begin the confirmation window after a transport accepts the reminder."""
@@ -144,6 +159,8 @@ class IdleRecovery:
             if current is None or current.ref != notice.ref or not current.active:
                 return None
             now = self.clock()
+            if not idle_actions_allowed(bot.config, now, current.since):
+                return None
             version = bot.op_holding_version(bot.state.bot_state, node, card, holder, at=now)
             if version != current.version or current.delivered_at is None:
                 return None
@@ -169,6 +186,8 @@ class IdleRecovery:
         bot_id, node, card = notice.resource
 
         def permit():
+            if not idle_actions_allowed(lease.bot.config, self.clock(), notice.since):
+                return False
             with self._lock:
                 latest = self._notices.get(notice.resource)
                 if latest is None or latest.ref != notice.ref or not self._eligible(latest, evidence, max_age):
@@ -178,9 +197,7 @@ class IdleRecovery:
 
         try:
             with self.manager.admit(bot_id) as lease, operation_attempt(bot_id, "internal", "idle_reclaim"):
-                if lease.generation != notice.generation or not lease.bot.config.get_val(
-                    "IDLE_UTILIZATION_CHECK_ENABLED"
-                ):
+                if lease.generation != notice.generation:
                     return False
                 return lease.bot.reclaim_idle_holding(node, card, notice.holder, notice.version, permit=permit)
         except (AdmissionFull, BotNotRunning, HoldingVersionConflict, InstanceRetiring):

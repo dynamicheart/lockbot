@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
+from lockbot.backend.app.resource_api.idle_recovery import idle_actions_allowed
 from lockbot.core.i18n import t
 
 logger = logging.getLogger(__name__)
@@ -62,11 +63,9 @@ class IdleChat:
                     return False
                 resource = _resource_label(notice.resource)
                 if kind == "warning":
-                    if (
-                        bot.op_holding_version(
-                            bot.published_snapshot().state, node, card, notice.holder, at=self.clock()
-                        )
-                        != notice.version
+                    now = self.clock()
+                    if not idle_actions_allowed(bot.config, now, notice.since) or notice.version != (
+                        bot.op_holding_version(bot.published_snapshot().state, node, card, notice.holder, at=now)
                     ):
                         return False
                     body = t(

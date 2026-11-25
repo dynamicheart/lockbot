@@ -1,8 +1,10 @@
 import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from threading import Event
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -354,7 +356,7 @@ def test_chat_reminder_and_keep_stay_with_the_holder(inventory, monkeypatch, cha
     (warning,) = messages
     assert warning["header"]["toid"] == [123]
     expected = (
-        "❗【资源利用率偏低】\n\ndemo dev0 的利用率已连续 20 分钟低于 5% (1.2%)\n\n"
+        "❗【资源利用率偏低】\n\ndemo dev0 的利用率已连续 20 分钟低于 5% (1.2%)\n"
         "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `keep demo dev0`。"
     )
     assert warning["body"] == [
@@ -565,6 +567,63 @@ def test_low_utilization_window_follows_the_same_holder(inventory, monkeypatch, 
             else:
                 assert bot.published_snapshot().state["demo"]["current_users"][0]["user_id"] == who
                 assert sent == ["warning"]
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("poll_at_night", [True, False])
+def test_overnight_pause_restarts_observation_at_morning_cutoff(inventory, monkeypatch, poll_at_night):
+    manager, targets, _ = inventory
+    bot = manager.get_instance(1).bot
+    bot.unlock("alice", "free demo")
+    bot.config.set_val("OVERNIGHT_ENABLED", True)
+    bot.config.set_val("OVERNIGHT_START", "23:59")
+    bot.config.set_val("OVERNIGHT_END", "00:00")
+    start = int(datetime(2026, 11, 25, 23, 28, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
+    night_start = start + 31 * 60
+    morning = night_start + 60
+    now = collected = start
+    monkeypatch.setattr("time.time", lambda: now)
+    execute_text_command("alice", "lock demo 1h", bot, source="chat")
+    target = {**targets[0], "recover_idle": True}
+    config = policy.ObservationConfig.model_validate({"sources": [source([target])]})
+    observer = policy.IdleObserver(config, manager, clock=lambda: now)
+    sent = []
+    observer.chat_notification = lambda notice, kind: sent.append(kind) is None
+
+    async def exercise():
+        nonlocal now, collected
+        transport = httpx.MockTransport(lambda _: response(collected))
+        async with httpx.AsyncClient(transport=transport) as client:
+            for offset in range(0, 1801, 180):
+                now = collected = start + offset
+                await observer.poll_source(0, client)
+            (first,) = observer.recovery.for_holder("alice", {1}, channel="chat")
+            assert first.review_at == night_start
+
+            now = collected = night_start
+            assert not observer.recovery.for_holder("alice", {1}, channel="chat")
+            if poll_at_night:
+                await observer.poll_source(0, client)
+                assert not observer.candidates
+                assert observer.sampling_status(1, target["bot_uuid"])["fresh_nodes"] == 1
+                assert bot.published_snapshot().state["demo"]["status"] == "exclusive"
+
+                now = morning  # The latest available sample was taken during the pause.
+                await observer.poll_source(0, client)
+                assert not observer.candidates
+
+            for offset in (0, 180, 360, 540, 720, 900, 1080, 1200):
+                now = collected = morning + offset
+                await observer.poll_source(0, client)
+                if offset < 1200:
+                    assert not observer.candidates
+                    assert sent == ["warning"]
+            (second,) = observer.recovery.for_holder("alice", {1}, channel="chat")
+            assert second.since == morning
+            assert second.ref != first.ref
+            assert sent == ["warning", "warning"]
+            assert bot.published_snapshot().state["demo"]["status"] == "exclusive"
 
     asyncio.run(exercise())
 
