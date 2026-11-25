@@ -15,7 +15,7 @@ from starlette.background import BackgroundTask
 from starlette.responses import StreamingResponse
 
 from lockbot.backend.app import database
-from lockbot.backend.app.resource_api.idle_recovery import CONFIRMATION_SECONDS
+from lockbot.backend.app.resource_api.idle_recovery import CONFIRMATION_SECONDS, EXTRA_SECONDS, IDLE_SECONDS
 from lockbot.backend.app.resource_api.resource_changes import (
     MAX_RESOURCE_STREAMS,
     MAX_RESOURCE_STREAMS_PER_IDENTITY,
@@ -225,12 +225,18 @@ async def watch_resources(
                     for ref, (notice, target_ref) in notices.items():
                         if ref in sent_notices:
                             continue
+                        trigger = recovery.trigger_reason(notice, recovery.clock())
+                        if not trigger:
+                            continue
                         yield _frame(
                             "idle.notice",
                             {
                                 "resource_ref": target_ref,
                                 "notice_ref": ref,
                                 "confirm_within_seconds": CONFIRMATION_SECONDS,
+                                "observation_seconds": IDLE_SECONDS,
+                                "keep_extension_seconds": EXTRA_SECONDS,
+                                "trigger": trigger,
                                 "confirm_by": notice.confirm_by,
                                 "review_at": notice.review_at,
                                 "confirmed": notice.confirmed,

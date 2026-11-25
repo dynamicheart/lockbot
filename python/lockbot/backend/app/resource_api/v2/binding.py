@@ -450,6 +450,8 @@ def complete_binding(
 @router.get("/bindings")
 @limiter.limit("120/minute")
 def list_bindings(request: Request, response: Response, db: Session = Depends(get_db)):
+    from lockbot.backend.app.resource_api.rules import current_low_utilization_rule
+
     response.headers["Cache-Control"] = "no-store"
     principal = require_principal(request, db)
     rows = db.execute(
@@ -462,7 +464,11 @@ def list_bindings(request: Request, response: Response, db: Session = Depends(ge
     )
     return {
         "grants": [
-            {**grant_summary(grant, bot, principal), "bot_id": bot.id}
+            {
+                **grant_summary(grant, bot, principal),
+                "bot_id": bot.id,
+                "low_utilization": current_low_utilization_rule(bot),
+            }
             for grant, bot in rows
             if grant_active(db, principal, grant, bot)
         ]

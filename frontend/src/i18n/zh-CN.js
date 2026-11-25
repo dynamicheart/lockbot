@@ -875,9 +875,13 @@ export default {
     defaultDurationHelp: '用户未指定时长时的默认值，单位秒，默认 7200（2小时）',
     maxLockDuration: '最大锁定时长',
     overnightLock: '夜间长锁',
+    overnightLockHelp:
+      '设有最大锁定时长时，夜间可申请超过常规上限的锁，最晚锁到次日截止。',
+    overnightPauseIdleCheck: '夜间暂停低利用率检查',
+    overnightPauseIdleCheckHelp: '夜间暂停低利用率提醒和回收，次日截止后从第一笔有效采样重新计时。',
     overnightStart: '开始时间（18:00–23:59）',
     overnightEnd: '次日截止（00:00–10:00）',
-    overnightTimezone: '夜间长锁时区',
+    overnightTimezone: '夜间时区',
     maxLockDurationHelp: '允许的最长锁定时间，单位秒，-1 表示不限制',
     maxLockDurationUnlimited: '不限制（-1）',
     unlimited: '不限制',
@@ -895,7 +899,7 @@ export default {
     earlyNotifyOff: '到期释放',
     idleUtilizationCheck: '20 分钟低利用率检查',
     idleUtilizationCheckHelp:
-      '只检查已接入后台采样的独占资源。未接入时，请在机器人详情中配置数据源，并登记后台采样目标。',
+      '只检查已接入后台采样的独占资源。同一机器人没有可直接申请的空闲资源，或当前资源有人排队时，才会触发提醒和回收。可在机器人详情中配置数据源并登记后台采样目标。',
     idleSampling: {
       unconfigured: '未配置数据源',
       waiting: '等待有效采样',

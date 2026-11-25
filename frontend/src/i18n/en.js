@@ -906,6 +906,11 @@ export default {
       'Default duration when user does not specify, in seconds. Default: 7200 (2h)',
     maxLockDuration: 'Max Lock Duration',
     overnightLock: 'Overnight leases',
+    overnightLockHelp:
+      'With a maximum lock duration set, overnight leases can exceed the usual limit up to the morning cutoff.',
+    overnightPauseIdleCheck: 'Pause low-utilization checks overnight',
+    overnightPauseIdleCheckHelp:
+      'Pause low-utilization reminders and reclamation overnight. A fresh window starts with the first valid sample after the morning cutoff.',
     overnightStart: 'Start (18:00–23:59)',
     overnightEnd: 'Morning cutoff (00:00–10:00)',
     overnightTimezone: 'Overnight timezone',
@@ -928,7 +933,7 @@ export default {
     earlyNotifyOff: 'Release on Expiry',
     idleUtilizationCheck: '20-minute low utilization check',
     idleUtilizationCheckHelp:
-      'Checks exclusive resources with background sampling. Configure a data source on the bot details page and register sampling targets.',
+      'Applies to exclusive resources with background sampling. Reminders and reclamation require either no unreserved idle resources on this bot or a waiter for the current resource. Configure the data source in the bot details and register background sampling targets.',
     idleSampling: {
       unconfigured: 'Data source not configured',
       waiting: 'Waiting for valid samples',

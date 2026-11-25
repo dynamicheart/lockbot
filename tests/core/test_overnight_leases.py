@@ -54,6 +54,11 @@ def test_spring_forward_uses_actual_instants():
     assert overnight_cutoff(config, now) - now == 10 * 3600
 
 
+def test_idle_check_pause_does_not_enable_overnight_leases():
+    config = Config({"OVERNIGHT_PAUSE_IDLE_CHECK": True})
+    assert overnight_cutoff(config, instant("2026-12-31", "22:00")) is None
+
+
 @pytest.mark.parametrize(
     "cls,bot_type,operation",
     [

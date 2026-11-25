@@ -9,11 +9,53 @@ from secrets import token_urlsafe
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
 from lockbot.core.base_bot import HoldingVersionConflict
 from lockbot.core.command_context import operation_attempt
+from lockbot.core.overnight import latest_overnight_cutoff
 
 logger = logging.getLogger(__name__)
 
 CONFIRMATION_SECONDS = 10 * 60
 EXTRA_SECONDS = 10 * 60
+IDLE_SECONDS = 20 * 60
+TRIGGER_RESOURCE_QUEUE = "resource_has_waiting_user"
+TRIGGER_BOT_FULL = "bot_has_no_available_resources"
+
+
+def has_available_resource(state):
+    return any(
+        unit.get("status") == "idle" and not unit.get("booking_list")
+        for node in state.values()
+        for unit in (node if isinstance(node, tuple) else (node,))
+    )
+
+
+def resource_has_waiter(state, resource, holder):
+    _, node, card = resource
+    unit = state.get(node)
+    if card is not None:
+        unit = unit[card] if isinstance(unit, tuple) and 0 <= card < len(unit) else None
+    return unit is not None and any(user["user_id"] != holder for user in unit.get("booking_list", ()))
+
+
+def idle_check_overnight_cutoff(config, now):
+    if config.get_val("OVERNIGHT_PAUSE_IDLE_CHECK"):
+        return latest_overnight_cutoff(config, now)
+    return None
+
+
+def idle_trigger_reason(bot, notice, now, *, state=None):
+    config = bot.config
+    if not config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"):
+        return None
+    cutoff = idle_check_overnight_cutoff(config, now)
+    if cutoff is not None and notice.since < cutoff:
+        return None
+    if state is None:
+        state = bot.published_snapshot().state
+    if resource_has_waiter(state, notice.resource, notice.holder):
+        return TRIGGER_RESOURCE_QUEUE
+    if not has_available_resource(state):
+        return TRIGGER_BOT_FULL
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,8 +95,11 @@ class IdleRecovery:
     def reconcile(self, index, evidence):
         """Publish new notices and remove cycles whose supporting observations were lost."""
         with self._lock:
+            # An unlocked resource may be reacquired by the same holder before the sample expires.
             candidates = {
-                resource: row for resource, row in evidence.items() if row.candidate and row.channel in ("chat", "api")
+                resource: row
+                for resource, row in evidence.items()
+                if row.candidate and row.channel in ("chat", "api") and (row.under_pressure or not row.active)
             }
             for resource in self._source_resources.get(index, set()) - candidates.keys():
                 self._notices.pop(resource, None)
@@ -101,7 +146,7 @@ class IdleRecovery:
 
     def for_holder(self, holder, bot_ids, *, channel):
         with self._lock:
-            return [
+            notices = [
                 notice
                 for notice in self._notices.values()
                 if notice.active
@@ -109,6 +154,12 @@ class IdleRecovery:
                 and notice.resource[0] in bot_ids
                 and (notice.channel == channel or channel == "chat" and notice.group_delivered)
             ]
+        now = self.clock()
+        return [notice for notice in notices if self.trigger_reason(notice, now)]
+
+    def trigger_reason(self, notice, now):
+        instance = self.manager.get_instance(notice.resource[0])
+        return idle_trigger_reason(instance.bot, notice, now) if instance is not None else None
 
     def delivered(self, notice, *, group=False):
         """Begin the confirmation window after a transport accepts the reminder."""
@@ -144,6 +195,8 @@ class IdleRecovery:
             if current is None or current.ref != notice.ref or not current.active:
                 return None
             now = self.clock()
+            if not idle_trigger_reason(bot, current, now):
+                return None
             version = bot.op_holding_version(bot.state.bot_state, node, card, holder, at=now)
             if version != current.version or current.delivered_at is None:
                 return None
@@ -169,6 +222,8 @@ class IdleRecovery:
         bot_id, node, card = notice.resource
 
         def permit():
+            if not idle_trigger_reason(lease.bot, notice, self.clock()):
+                return False
             with self._lock:
                 latest = self._notices.get(notice.resource)
                 if latest is None or latest.ref != notice.ref or not self._eligible(latest, evidence, max_age):
@@ -178,9 +233,7 @@ class IdleRecovery:
 
         try:
             with self.manager.admit(bot_id) as lease, operation_attempt(bot_id, "internal", "idle_reclaim"):
-                if lease.generation != notice.generation or not lease.bot.config.get_val(
-                    "IDLE_UTILIZATION_CHECK_ENABLED"
-                ):
+                if lease.generation != notice.generation:
                     return False
                 return lease.bot.reclaim_idle_holding(node, card, notice.holder, notice.version, permit=permit)
         except (AdmissionFull, BotNotRunning, HoldingVersionConflict, InstanceRetiring):
@@ -195,8 +248,7 @@ class IdleRecovery:
         return (
             deadline is not None
             and notice.active
-            and evidence.active
-            and evidence.candidate
+            and evidence.actionable
             and (notice.version, notice.since) == (evidence.version, evidence.since)
             and deadline <= evidence.observed_at <= now <= evidence.observed_at + max_age
         )

@@ -446,11 +446,36 @@
               </el-form-item>
             </el-col>
             <el-col :span="24">
-              <el-form-item :label="$t('botCreate.overnightLock')">
-                <el-switch v-model="advancedConfig.OVERNIGHT_ENABLED" />
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.overnightLock') }}
+                  <el-tooltip :content="$t('botCreate.overnightLockHelp')" placement="top">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch
+                  id="overnight-lock"
+                  v-model="advancedConfig.OVERNIGHT_ENABLED"
+                  :aria-label="$t('botCreate.overnightLock')"
+                />
               </el-form-item>
             </el-col>
-            <template v-if="advancedConfig.OVERNIGHT_ENABLED">
+            <el-col :span="24">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.overnightPauseIdleCheck') }}
+                  <el-tooltip :content="$t('botCreate.overnightPauseIdleCheckHelp')" placement="top">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch
+                  id="overnight-pause-idle-check"
+                  v-model="advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK"
+                  :aria-label="$t('botCreate.overnightPauseIdleCheck')"
+                />
+              </el-form-item>
+            </el-col>
+            <template v-if="advancedConfig.OVERNIGHT_ENABLED || advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK">
               <el-col :xs="24" :sm="8">
                 <el-form-item :label="$t('botCreate.overnightStart')">
                   <el-input
@@ -770,6 +795,7 @@ const advancedConfig = reactive({
   DEFAULT_DURATION: 7200,
   MAX_LOCK_DURATION: -1,
   OVERNIGHT_ENABLED: false,
+  OVERNIGHT_PAUSE_IDLE_CHECK: false,
   OVERNIGHT_START: '22:00',
   OVERNIGHT_END: '09:00',
   OVERNIGHT_TIMEZONE: 'Asia/Shanghai',
@@ -872,6 +898,7 @@ onMounted(async () => {
           advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
         for (const key of [
           'OVERNIGHT_ENABLED',
+          'OVERNIGHT_PAUSE_IDLE_CHECK',
           'OVERNIGHT_START',
           'OVERNIGHT_END',
           'OVERNIGHT_TIMEZONE',
