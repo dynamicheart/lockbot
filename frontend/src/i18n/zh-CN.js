@@ -884,12 +884,12 @@ export default {
     defaultDurationHelp: '用户未指定时长时的默认值，单位秒，默认 7200（2小时）',
     maxLockDuration: '最大锁定时长',
     overnightLock: '夜间长锁',
-    overnightLockHelp:
-      '设有最大锁定时长时，夜间可申请超过常规上限的锁，最晚锁到次日截止。',
+    overnightLockHelp: '工作日夜间可延长到次晨截止。周末从周五晚到周一早，并遵守常规最大锁定时长。',
     overnightPauseIdleCheck: '夜间暂停低利用率检查',
-    overnightPauseIdleCheckHelp: '夜间暂停低利用率提醒和回收，次日截止后从第一笔有效采样重新计时。',
+    overnightPauseIdleCheckHelp:
+      '工作日夜间和周五晚至周一早暂停提醒和回收。时段结束后，从第一笔有效采样重新计时。',
     overnightStart: '开始时间（18:00–23:59）',
-    overnightEnd: '次日截止（00:00–10:00）',
+    overnightEnd: '早晨截止（00:00–10:00）',
     overnightTimezone: '夜间时区',
     maxLockDurationHelp: '允许的最长锁定时间，单位秒，-1 表示不限制',
     maxLockDurationUnlimited: '不限制（-1）',

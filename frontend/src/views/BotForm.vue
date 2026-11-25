@@ -300,6 +300,62 @@
                 {{ $t(`botCreate.idleSampling.${idleSamplingState}`) }}
               </el-tag>
             </div>
+            <div class="agent-setting-row">
+              <label class="agent-setting-label" for="overnight-pause-idle-check">
+                {{ $t('botCreate.overnightPauseIdleCheck') }}
+                <el-tooltip :content="$t('botCreate.overnightPauseIdleCheckHelp')" placement="top">
+                  <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </label>
+              <el-switch
+                id="overnight-pause-idle-check"
+                v-model="advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK"
+                :aria-label="$t('botCreate.overnightPauseIdleCheck')"
+              />
+            </div>
+            <div class="agent-setting-row">
+              <label class="agent-setting-label" for="overnight-lock">
+                {{ $t('botCreate.overnightLock') }}
+                <el-tooltip :content="$t('botCreate.overnightLockHelp')" placement="top">
+                  <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </label>
+              <el-switch
+                id="overnight-lock"
+                v-model="advancedConfig.OVERNIGHT_ENABLED"
+                :aria-label="$t('botCreate.overnightLock')"
+              />
+            </div>
+            <el-row
+              v-if="advancedConfig.OVERNIGHT_ENABLED || advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK"
+              :gutter="16"
+            >
+              <el-col :xs="24" :sm="8">
+                <el-form-item :label="$t('botCreate.overnightStart')">
+                  <el-input
+                    v-model="advancedConfig.OVERNIGHT_START"
+                    type="time"
+                    min="18:00"
+                    max="23:59"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item :label="$t('botCreate.overnightEnd')">
+                  <el-input
+                    v-model="advancedConfig.OVERNIGHT_END"
+                    type="time"
+                    min="00:00"
+                    max="10:00"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item :label="$t('botCreate.overnightTimezone')">
+                  <el-input v-model="advancedConfig.OVERNIGHT_TIMEZONE" />
+                </el-form-item>
+              </el-col>
+            </el-row>
           </section>
 
           <section class="agent-settings" :aria-label="$t('botDetail.agentGroup')">
@@ -445,63 +501,6 @@
                 />
               </el-form-item>
             </el-col>
-            <el-col :span="24">
-              <el-form-item>
-                <template #label>
-                  {{ $t('botCreate.overnightLock') }}
-                  <el-tooltip :content="$t('botCreate.overnightLockHelp')" placement="top">
-                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
-                  </el-tooltip>
-                </template>
-                <el-switch
-                  id="overnight-lock"
-                  v-model="advancedConfig.OVERNIGHT_ENABLED"
-                  :aria-label="$t('botCreate.overnightLock')"
-                />
-              </el-form-item>
-            </el-col>
-            <el-col :span="24">
-              <el-form-item>
-                <template #label>
-                  {{ $t('botCreate.overnightPauseIdleCheck') }}
-                  <el-tooltip :content="$t('botCreate.overnightPauseIdleCheckHelp')" placement="top">
-                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
-                  </el-tooltip>
-                </template>
-                <el-switch
-                  id="overnight-pause-idle-check"
-                  v-model="advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK"
-                  :aria-label="$t('botCreate.overnightPauseIdleCheck')"
-                />
-              </el-form-item>
-            </el-col>
-            <template v-if="advancedConfig.OVERNIGHT_ENABLED || advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK">
-              <el-col :xs="24" :sm="8">
-                <el-form-item :label="$t('botCreate.overnightStart')">
-                  <el-input
-                    v-model="advancedConfig.OVERNIGHT_START"
-                    type="time"
-                    min="18:00"
-                    max="23:59"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :sm="8">
-                <el-form-item :label="$t('botCreate.overnightEnd')">
-                  <el-input
-                    v-model="advancedConfig.OVERNIGHT_END"
-                    type="time"
-                    min="00:00"
-                    max="10:00"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :sm="8">
-                <el-form-item :label="$t('botCreate.overnightTimezone')">
-                  <el-input v-model="advancedConfig.OVERNIGHT_TIMEZONE" />
-                </el-form-item>
-              </el-col>
-            </template>
             <el-col :xs="24" :sm="12">
               <el-form-item>
                 <template #label>

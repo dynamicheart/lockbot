@@ -6,7 +6,7 @@ from fake_adapter import FakeAdapter
 from lockbot.core.config import Config
 from lockbot.core.device_bot import DeviceBot
 from lockbot.core.node_bot import NodeBot
-from lockbot.core.overnight import LeaseLimit, overnight_cutoff, window_settings
+from lockbot.core.overnight import LeaseLimit, latest_overnight_window, window_settings
 from lockbot.core.queue_bot import QueueBot
 from lockbot.core.queue_device_bot import QueueDeviceBot
 
@@ -31,7 +31,7 @@ def instant(date, clock, zone="Asia/Shanghai"):
 def test_regular_entitlement_and_overnight_exception(clock, minutes, accepted):
     now = instant("2026-12-31", clock)
     config = Config({"OVERNIGHT_ENABLED": True})
-    limit = LeaseLimit(now, 4 * 3600, overnight_cutoff(config, now))
+    limit = LeaseLimit.for_config(config, now, 4 * 3600)
     assert limit.rejects(None, minutes * 60) is not accepted
 
 
@@ -44,19 +44,55 @@ def test_invalid_window(start, end):
 @pytest.mark.parametrize("start,end", [("18:00", "10:00"), ("20:00", "08:00"), ("23:59", "00:00")])
 def test_year_boundary(start, end):
     config = Config({"OVERNIGHT_ENABLED": True, "OVERNIGHT_START": start, "OVERNIGHT_END": end})
-    assert overnight_cutoff(config, instant("2026-12-31", start)) == instant("2027-01-01", end)
+    assert LeaseLimit.for_config(config, instant("2026-12-31", start), 3600).cutoff == instant("2027-01-01", end)
 
 
 def test_spring_forward_uses_actual_instants():
     zone = "America/New_York"
     config = Config({"OVERNIGHT_ENABLED": True, "OVERNIGHT_TIMEZONE": zone})
     now = instant("2026-03-07", "22:00", zone)
-    assert overnight_cutoff(config, now) - now == 10 * 3600
+    assert LeaseLimit.for_config(config, now, -1).remaining_limit == 34 * 3600
 
 
 def test_idle_check_pause_does_not_enable_overnight_leases():
     config = Config({"OVERNIGHT_PAUSE_IDLE_CHECK": True})
-    assert overnight_cutoff(config, instant("2026-12-31", "22:00")) is None
+    assert LeaseLimit.for_config(config, instant("2026-12-31", "22:00"), 3600).cutoff is None
+
+
+@pytest.mark.parametrize(
+    "day,clock,active",
+    [
+        ("2026-11-27", "21:59", False),
+        ("2026-11-27", "22:00", True),
+        ("2026-11-28", "14:00", True),
+        ("2026-11-29", "14:00", True),
+        ("2026-11-30", "08:59", True),
+        ("2026-11-30", "09:00", False),
+    ],
+)
+def test_weekend_has_one_cutoff(day, clock, active):
+    config = Config({"OVERNIGHT_ENABLED": True})
+    now = instant(day, clock)
+    monday = instant("2026-11-30", "09:00")
+    limit = LeaseLimit.for_config(config, now, -1)
+    assert limit.cutoff == (monday if active else None)
+    if active or clock == "09:00":
+        assert latest_overnight_window(config, now) == (monday, True)
+
+
+def test_weekend_respects_both_the_normal_maximum_and_monday_cutoff():
+    config = Config({"OVERNIGHT_ENABLED": True})
+    now = instant("2026-11-29", "22:00")
+    capped = LeaseLimit.for_config(config, now, 4 * 3600)
+    assert capped.remaining_limit == 4 * 3600
+    assert capped.rejects(None, 5 * 3600)
+    assert not capped.rejects(None, 4 * 3600)
+    unlimited = LeaseLimit.for_config(config, now, -1)
+    assert unlimited.remaining_limit == 11 * 3600
+    assert not unlimited.rejects(None, 11 * 3600)
+    assert unlimited.rejects(None, 11 * 3600 + 1)
+    holder = {"start_time": now, "duration": 11 * 3600}
+    assert unlimited.rejects(holder, 60)
 
 
 @pytest.mark.parametrize(
@@ -122,3 +158,28 @@ def test_queue_claim_rechecks_booked_duration(tmp_path, monkeypatch):
     now = instant("2027-01-01", "09:01")
     bot.lock("alice", "lock a")
     assert not node["current_users"] and node["booking_list"][0]["user_id"] == "alice"
+
+
+def test_weekend_lock_preserves_queue_order_and_rechecks_the_cutoff(tmp_path, monkeypatch):
+    now = instant("2026-11-29", "22:00")
+    monkeypatch.setattr("time.time", lambda: now)
+    bot = QueueBot(
+        config_dict={
+            "BOT_ID": "test",
+            "BOT_TYPE": "QUEUE",
+            "DATA_DIR": str(tmp_path),
+            "CLUSTER_CONFIGS": ["a"],
+            "MAX_LOCK_DURATION": 12 * 3600,
+            "OVERNIGHT_ENABLED": True,
+        },
+        adapter=FakeAdapter(),
+    )
+    bot.book("alice", "book a 11h")
+    node = bot.state.bot_state["a"]
+    bot.lock("bob", "lock a 1h")
+    assert not node["current_users"] and node["booking_list"][0]["user_id"] == "alice"
+    now += 60
+    bot.lock("alice", "lock a")
+    assert not node["current_users"] and node["booking_list"][0]["user_id"] == "alice"
+    bot.lock("alice", "lock a 10h")
+    assert node["current_users"][0]["user_id"] == "alice"
