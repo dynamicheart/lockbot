@@ -450,3 +450,25 @@ def test_gateway_observer_uses_scoped_post_and_fails_closed(inventory, monkeypat
         assert observed == [True] and not observer.candidates
 
     asyncio.run(exercise())
+
+
+def test_gateway_issuer_checks_live_identity_endpoint_and_mappings(inventory, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    _, targets, _ = inventory
+    config = policy.Source.model_validate({**source(targets[:1]), "use_bot_metrics_grant": True})
+    bot = SimpleNamespace(uuid=str(config.targets[0].bot_uuid), is_deleted=False)
+    source_config = {"endpoint": "https://metrics.example.test", "nodeMapping": {"demo": "host-a"}, "deviceMapping": {}}
+    monkeypatch.setattr(policy, "SessionLocal", lambda: nullcontext(SimpleNamespace(get=lambda *_: bot)))
+    monkeypatch.setattr(policy, "agent_metrics_source", lambda _: source_config)
+    monkeypatch.setattr(policy, "issue_metrics_access", lambda *_: {"token": "test-only"})
+    assert policy._bot_metrics_token(config) == "test-only"
+    source_config["nodeMapping"]["other"] = "host-a"
+    assert policy._bot_metrics_token(config) is None
+    del source_config["nodeMapping"]["other"]
+    source_config["endpoint"] = "https://another.example.test"
+    assert policy._bot_metrics_token(config) is None
+    source_config["endpoint"] = "https://metrics.example.test"
+    bot.uuid = str(uuid4())
+    assert policy._bot_metrics_token(config) is None

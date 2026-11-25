@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
@@ -103,8 +103,9 @@ def _bot_metrics_token(source):
         live = agent_metrics_source(bot)
         if not live or live["endpoint"] != str(source.endpoint).rstrip("/"):
             return None
+        label_counts = Counter(live["nodeMapping"].values())
         for target in source.targets:
-            if live["nodeMapping"].get(target.node) != target.source_node:
+            if live["nodeMapping"].get(target.node) != target.source_node or label_counts[target.source_node] != 1:
                 return None
             if any(
                 live["deviceMapping"].get(f"{target.node}:dev{idx}") != label for idx, label in target.cards.items()
