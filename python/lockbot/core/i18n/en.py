@@ -205,9 +205,12 @@ MESSAGES = {
     "notify.wait_time_increased": "Note: wait times have been updated\n\n",
     "idle.warning": (
         "❗[Low resource utilization]\n\n"
-        "Utilization for {resource} has been below {threshold}% for 20 minutes ({utilization}%).\n"
+        "Utilization for {resource} has been below {threshold}% for 20 minutes ({utilization}%). {reason}{hours}.\n"
         "Resume use within 10 minutes. For 10 extra minutes, mention the bot and send `{command}` in this group."
     ),
+    "idle.reason_queue": "Someone is waiting for this resource",
+    "idle.reason_no_available": "This bot has no idle resources",
+    "idle.reason_daytime": " (outside overnight hours)",
     "idle.confirmed": "✅[Confirmed]\n\nUtilization for {resource} will be checked again at {time}.",
     "idle.confirm_unavailable": "⚠️[Unable to keep resource]\n\nYou have no pending reminder for {resource}.",
     "idle.reclaimed": (

@@ -319,6 +319,9 @@ def test_chat_reminder_and_keep_stay_with_the_holder(inventory, monkeypatch, cha
     bot.config.set_val("GROUP_REMIND_AGENT_IDLE", group_enabled)
     bot.unlock("alice", "free demo dev0")
     execute_text_command("alice", "lock demo dev0 1h", bot, source=channel)
+    waiting = channel == "chat"
+    if waiting:
+        bot.book("bob", "book demo dev0 1h")
     start = bot.published_snapshot().state["demo"][0]["current_users"][0]["start_time"]
     now = start
     sample_cards = {"dev-a": 1.2, "dev-b": 82}
@@ -357,8 +360,9 @@ def test_chat_reminder_and_keep_stay_with_the_holder(inventory, monkeypatch, cha
         return
     (warning,) = messages
     assert warning["header"]["toid"] == [123]
+    reason = "当前资源有人排队" if waiting else "本机器人无空闲资源"
     expected = (
-        "❗【资源利用率偏低】\n\ndemo dev0 的利用率已连续 20 分钟低于 5% (1.2%)\n"
+        f"❗【资源利用率偏低】\n\ndemo dev0 的利用率已连续 20 分钟低于 5% (1.2%)。{reason}。\n"
         "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `keep demo dev0`。"
     )
     assert warning["body"] == [

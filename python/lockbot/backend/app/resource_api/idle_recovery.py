@@ -39,15 +39,20 @@ def idle_check_overnight_cutoff(config, now):
     return None
 
 
-def idle_actions_allowed(bot, notice, now):
+def idle_trigger_reason(bot, notice, now, *, state=None):
     config = bot.config
     if not config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"):
-        return False
+        return None
     cutoff = idle_check_overnight_cutoff(config, now)
     if cutoff is not None and notice.since < cutoff:
-        return False
-    state = bot.published_snapshot().state
-    return resource_has_waiter(state, notice.resource, notice.holder) or not has_available_resource(state)
+        return None
+    if state is None:
+        state = bot.published_snapshot().state
+    if resource_has_waiter(state, notice.resource, notice.holder):
+        return "idle.reason_queue"
+    if not has_available_resource(state):
+        return "idle.reason_no_available"
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,7 +156,7 @@ class IdleRecovery:
             notice
             for notice in notices
             if (instance := self.manager.get_instance(notice.resource[0])) is not None
-            and idle_actions_allowed(instance.bot, notice, now)
+            and idle_trigger_reason(instance.bot, notice, now)
         ]
 
     def delivered(self, notice, *, group=False):
@@ -188,7 +193,7 @@ class IdleRecovery:
             if current is None or current.ref != notice.ref or not current.active:
                 return None
             now = self.clock()
-            if not idle_actions_allowed(bot, current, now):
+            if not idle_trigger_reason(bot, current, now):
                 return None
             version = bot.op_holding_version(bot.state.bot_state, node, card, holder, at=now)
             if version != current.version or current.delivered_at is None:
@@ -215,7 +220,7 @@ class IdleRecovery:
         bot_id, node, card = notice.resource
 
         def permit():
-            if not idle_actions_allowed(lease.bot, notice, self.clock()):
+            if not idle_trigger_reason(lease.bot, notice, self.clock()):
                 return False
             with self._lock:
                 latest = self._notices.get(notice.resource)
