@@ -368,12 +368,13 @@ export default {
 
     resource: 'Resource',
     title: 'Agent history',
-    search: 'Search user, operation or visible task',
+    search: 'Search user, source IP, operation or task',
     retention:
       'Private operation files are size-rotated (up to 10 × 5 MiB). Pages scan at most 1 MiB; filtered pages can be empty with more history available. Refresh if older files have rotated away. Dispatch does not prove the requested resource operation succeeded.',
     error: 'History unavailable or cursor expired; refresh to reload.',
     time: 'Time',
     user: 'User',
+    sourceIp: 'Source IP',
     operation: 'Operation',
     task: 'Task',
     outcome: 'Processing result',
@@ -383,6 +384,7 @@ export default {
       uncertain: 'Outcome uncertain',
       dispatched: 'Dispatched',
       applied: 'Applied',
+      replayed: 'Reused previous result',
       rejected: 'Rejected',
       may_have_executed: 'Outcome uncertain',
     },

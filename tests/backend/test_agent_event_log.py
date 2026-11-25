@@ -4,8 +4,10 @@
 
 import json
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 
 import pytest
+from fastapi.testclient import TestClient
 from lockbot.backend.app.audit.models import AuditLog
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.models import Bot, BotLog
@@ -68,6 +70,32 @@ def test_rejected_core_reply_is_still_only_a_dispatch(client, api, tmp_path):
     assert event["actor"]["external_user_id"] == "bob" and event["outcome"] == "dispatched"
     assert event["observed_state"]["resources"][0]["holders"] == []
     assert api["bot"].state.bot_state["n1"]["current_users"][0]["user_id"] == "alice"
+
+
+def test_source_ip_is_searchable_in_bot_management_history_only(client, api, db_session, tmp_path):
+    bot = db_session.get(Bot, api["bot_id"])
+    bot.api_key = "test-operator-key"
+    db_session.commit()
+    with closing(
+        TestClient(client.app, client=("2001:db8:0::41", 50000), headers={"X-Forwarded-For": "192.0.2.99"})
+    ) as agent_client:
+        assert command(agent_client, api, "lock n1 1h").status_code == 200
+    assert records(tmp_path, api)[-1]["source_ip"] == "2001:db8::41"
+
+    management = f"/api/bots/{bot.id}/agent-history"
+    params = {"query": "2001:db8::41"}
+    response = client.get(management, params=params, headers=api["auth_header"]).raise_for_status()
+    (entry,) = response.json()["items"]
+    assert entry["source_ip"] == "2001:db8::41"
+    assert entry["api_version"] == 1
+    assert "192.0.2.99" not in response.text
+    assert client.get(management, headers=api["headers"]).status_code == 401
+
+    operator = f"/api/bots/{bot.id}/op/history"
+    headers = {"Authorization": "Bearer test-operator-key"}
+    (entry,) = client.get(operator, headers=headers).raise_for_status().json()["items"]
+    assert "source_ip" not in entry
+    assert client.get(operator, params=params, headers=headers).raise_for_status().json()["items"] == []
 
 
 def test_release_keeps_command_history_without_private_metadata(client, api, tmp_path):
@@ -167,7 +195,7 @@ def test_known_keys_tokens_and_view_codes_are_redacted(tmp_path, api):
         "operation": "command",
         "stage": "dispatched",
         "command": "query",
-        "purpose": "lbr_private-key lbk_operator-key token=hidden-value password=hidden-password",
+        "purpose": "lbr_private-key lbk_operator-key lbv2_private-key token=hidden-value password=hidden-password",
         "reply": (
             "http://example.invalid/#/bot/1?view=lbv1.nonce.signature "
             "Bearer arbitrary-credential eyJheader.payload.signature "
@@ -179,6 +207,7 @@ def test_known_keys_tokens_and_view_codes_are_redacted(tmp_path, api):
     for secret in [
         "lbr_private",
         "lbk_operator",
+        "lbv2_private",
         "hidden-value",
         "hidden-password",
         "lbv1.nonce",

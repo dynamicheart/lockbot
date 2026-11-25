@@ -34,6 +34,7 @@ from lockbot.backend.app.auth.dependencies import get_current_user, require_supe
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import Base, get_db
+from lockbot.backend.app.resource_api.event_log import event_for_request, write_event
 from lockbot.backend.app.resource_api.privacy import audit_private_read, private_task_view
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 
@@ -209,26 +210,19 @@ def install_activity_middleware(app):
                 recorder.record(principal, request.method, status)
             actor = getattr(request.state, "resource_actor", None)
             engine = getattr(request.state, "resource_activity_engine", None)
-            if actor is not None:
-                from lockbot.backend.app.resource_api.event_log import event_for_request, write_event
-
-                event = event_for_request(request)
-                if engine is not None:
-                    kind = getattr(
-                        request.state, "resource_activity_kind", "read" if request.method == "GET" else "write"
-                    )
-                    await asyncio.to_thread(
-                        _record,
-                        engine,
-                        actor,
-                        kind,
-                        status,
-                        _utcnow(),
-                    )
-                if event is not None:
-                    await asyncio.to_thread(
-                        write_event, actor=actor, event=event, status=status, duration_ms=duration_ms
-                    )
+            if actor is not None and engine is not None:
+                kind = getattr(request.state, "resource_activity_kind", "read" if request.method == "GET" else "write")
+                await asyncio.to_thread(_record, engine, actor, kind, status, _utcnow())
+            event_actor = actor or getattr(request.state, "v2_event_actor", None)
+            if event_actor is not None and (event := event_for_request(request)) is not None:
+                await asyncio.to_thread(
+                    write_event,
+                    actor=event_actor,
+                    event=event,
+                    status=status,
+                    duration_ms=duration_ms,
+                    source_ip=request.client.host if request.client else None,
+                )
 
 
 def valid_binding_filter(bot, now):

@@ -38,6 +38,9 @@
           ></template
         ></el-table-column
       >
+      <el-table-column :label="$t('agentHistory.sourceIp')" min-width="145" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.source_ip || '—' }}</template>
+      </el-table-column>
       <el-table-column :label="$t('agentHistory.operation')" min-width="180" show-overflow-tooltip
         ><template #default="{ row }">{{
           row.command || $t('agentHistory.operations.' + row.operation)
