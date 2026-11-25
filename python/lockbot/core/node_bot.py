@@ -121,8 +121,6 @@ class NodeBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
@@ -137,26 +135,12 @@ class NodeBot(BaseLockBot):
                 return self.show_error(user_id, self._msg_with_usage("error.node_in_use_or_shared"))
 
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
 
-            if max_dur > 0 and user_id not in whitelist:
-                for node in nodes:
-                    total_duration = duration
-                    user_info = find_user_info(node["current_users"], user_id)
-                    if user_info:
-                        total_duration += user_info["duration"]
-                        start_time = user_info["start_time"]
-                    else:
-                        start_time = timestamp
-                    if remaining_duration(start_time, total_duration) > max_dur:
-                        return self.show_error(
-                            user_id,
-                            t(
-                                "error.lock_max_duration_exceeded",
-                                config=self.config,
-                                max_duration=format_duration(max_dur, config=self.config),
-                                whitelist_hint=self._whitelist_hint(),
-                            ),
-                        )
+            for node in nodes:
+                holder = find_user_info(node["current_users"], user_id)
+                if limit.rejects(holder, duration):
+                    return limit.error(self, user_id, holder)
 
             for node in nodes:
                 node["status"] = "exclusive"
@@ -170,6 +154,7 @@ class NodeBot(BaseLockBot):
 
                 user_info["duration"] = total_duration
                 user_info["is_notified"] = False
+                limit.record(user_info)
                 node["current_users"] = [user_info]
 
             reply = self.adapter.build_reply(self._msg_with_usage("success.resource_locked"), [user_id])
@@ -185,8 +170,6 @@ class NodeBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
@@ -197,24 +180,12 @@ class NodeBot(BaseLockBot):
                 return self.show_error(user_id, self._msg_with_usage("error.node_exclusive_mode"))
 
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
 
-            if max_dur > 0 and user_id not in whitelist:
-                for node in nodes:
-                    user_info = find_user_info(node["current_users"], user_id)
-                    if user_info:
-                        total_duration = user_info["duration"] + duration
-                        start_time = user_info["start_time"]
-                    else:
-                        total_duration = duration
-                        start_time = timestamp
-                    if remaining_duration(start_time, total_duration) > max_dur:
-                        msg = t(
-                            "error.slock_max_duration_exceeded",
-                            config=self.config,
-                            max_duration=format_duration(max_dur, config=self.config),
-                            whitelist_hint=self._whitelist_hint(),
-                        )
-                        return self.show_error(user_id, msg)
+            for node in nodes:
+                holder = find_user_info(node["current_users"], user_id)
+                if limit.rejects(holder, duration):
+                    return limit.error(self, user_id, holder, shared=True)
 
             for node in nodes:
                 node["status"] = "shared"
@@ -225,6 +196,7 @@ class NodeBot(BaseLockBot):
                 else:
                     user_info["duration"] += duration
                     user_info["is_notified"] = False
+                limit.record(user_info)
 
             reply = self.adapter.build_reply(self._msg_with_usage("success.resource_locked"), [user_id])
             log_to_file(user_id, "slock", node_keys, duration, config=self.config)

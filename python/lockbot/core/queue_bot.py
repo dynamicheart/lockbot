@@ -35,8 +35,6 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
@@ -63,32 +61,16 @@ class QueueBot(NodeBot):
                 )
 
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
             delayed = set()
             group_recipients = set()
 
-            if max_dur > 0 and user_id not in whitelist:
-                for node in nodes:
-                    booking_info = find_user_info(node["booking_list"], user_id)
-                    if not command_has_duration and booking_info:
-                        check_duration = booking_info["duration"]
-                    else:
-                        check_duration = duration
-                    user_info = find_user_info(node["current_users"], user_id)
-                    if user_info:
-                        check_duration += user_info["duration"]
-                        start_time = user_info["start_time"]
-                    else:
-                        start_time = timestamp
-                    if remaining_duration(start_time, check_duration) > max_dur:
-                        return self.show_error(
-                            user_id,
-                            t(
-                                "error.lock_max_duration_exceeded",
-                                config=self.config,
-                                max_duration=format_duration(max_dur, config=self.config),
-                                whitelist_hint=self._whitelist_hint(),
-                            ),
-                        )
+            for node in nodes:
+                holder = find_user_info(node["current_users"], user_id)
+                booking = find_user_info(node["booking_list"], user_id)
+                requested = booking["duration"] if booking and not command_has_duration else duration
+                if limit.rejects(holder, requested):
+                    return limit.error(self, user_id, holder)
 
             for node in nodes:
                 node["status"] = "exclusive"
@@ -113,6 +95,7 @@ class QueueBot(NodeBot):
 
                 user_info["duration"] = total_duration
                 user_info["is_notified"] = False
+                limit.record(user_info)
                 node["current_users"] = [user_info]
 
             observed_at = int(time.time())
@@ -145,8 +128,6 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
@@ -160,17 +141,10 @@ class QueueBot(NodeBot):
                 return self.show_error(user_id, self._msg_with_usage("error.already_locked", sep="\n"))
 
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
 
-            if max_dur > 0 and user_id not in whitelist and duration > max_dur:
-                return self.show_error(
-                    user_id,
-                    t(
-                        "error.lock_max_duration_exceeded",
-                        config=self.config,
-                        max_duration=format_duration(max_dur, config=self.config),
-                        whitelist_hint=self._whitelist_hint(),
-                    ),
-                )
+            if limit.rejects(None, duration):
+                return limit.error(self, user_id)
 
             for node in nodes:
                 user_info = create_user_info(user_id, duration, timestamp, config=self.config)
@@ -189,8 +163,6 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             resources = self._resource_state()
             nodes = [resources[node_key] for node_key in node_keys]
@@ -201,18 +173,11 @@ class QueueBot(NodeBot):
                 return self.show_error(user_id, self._msg_with_usage("error.locked_user_cannot_take", sep="\n"))
 
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
             users_to_notify = set()
             users_to_notify.add(user_id)
-            if max_dur > 0 and user_id not in whitelist and remaining_duration(timestamp, duration) > max_dur:
-                return self.show_error(
-                    user_id,
-                    t(
-                        "error.lock_max_duration_exceeded",
-                        config=self.config,
-                        max_duration=format_duration(max_dur, config=self.config),
-                        whitelist_hint=self._whitelist_hint(),
-                    ),
-                )
+            if limit.rejects(None, duration):
+                return limit.error(self, user_id)
 
             requested = set(node_keys)
             affected_resources = {key: node for key, node in resources.items() if key in requested}
@@ -234,6 +199,7 @@ class QueueBot(NodeBot):
                 for other_user in reversed(others):
                     rem_dur = remaining_duration(other_user["start_time"], other_user["duration"])
                     if rem_dur > 0:
+                        other_user.pop("overnight_cutoff", None)
                         other_user["start_time"] = timestamp
                         other_user["duration"] = rem_dur
                         other_user["is_notified"] = False
@@ -245,6 +211,7 @@ class QueueBot(NodeBot):
 
                 user_info["duration"] = total_duration
                 user_info["is_notified"] = False
+                limit.record(user_info)
                 node["current_users"] = [user_info]
 
             observed_at = int(time.time())

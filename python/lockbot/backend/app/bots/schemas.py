@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from lockbot.backend.app.bots.datasource import UtilizationConfig
 from lockbot.backend.app.managed_paths import protected_override_keys
 from lockbot.backend.app.resource_api.view_links import MAX_LINK_DAYS
+from lockbot.core.overnight import window_settings
 
 # ── config_overrides value bounds ─────────────────────────────────────────────
 _CFG_RULES: dict[str, tuple[int, int] | None] = {
@@ -42,6 +43,10 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     if not v:
         return v
     errors: list[str] = []
+    if "OVERNIGHT_ENABLED" in v and not isinstance(v["OVERNIGHT_ENABLED"], bool):
+        errors.append("OVERNIGHT_ENABLED must be a boolean")
+    if any(key.startswith("OVERNIGHT_") for key in v):
+        window_settings(v)
     if "FORBID_RELOCK" in v and not isinstance(v["FORBID_RELOCK"], bool):
         errors.append("FORBID_RELOCK must be a boolean")
     if "GROUP_REMIND_API_RESOURCES" in v and not isinstance(v["GROUP_REMIND_API_RESOURCES"], bool):

@@ -383,6 +383,38 @@
                 />
               </el-form-item>
             </el-col>
+            <el-col :span="24">
+              <el-form-item :label="$t('botCreate.overnightLock')">
+                <el-switch v-model="advancedConfig.OVERNIGHT_ENABLED" />
+              </el-form-item>
+            </el-col>
+            <template v-if="advancedConfig.OVERNIGHT_ENABLED">
+              <el-col :xs="24" :sm="8">
+                <el-form-item :label="$t('botCreate.overnightStart')">
+                  <el-input
+                    v-model="advancedConfig.OVERNIGHT_START"
+                    type="time"
+                    min="18:00"
+                    max="23:59"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item :label="$t('botCreate.overnightEnd')">
+                  <el-input
+                    v-model="advancedConfig.OVERNIGHT_END"
+                    type="time"
+                    min="00:00"
+                    max="10:00"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item :label="$t('botCreate.overnightTimezone')">
+                  <el-input v-model="advancedConfig.OVERNIGHT_TIMEZONE" />
+                </el-form-item>
+              </el-col>
+            </template>
             <el-col :xs="24" :sm="12">
               <el-form-item>
                 <template #label>
@@ -681,6 +713,10 @@ const resourceViewLinkDays = ref('inherit')
 const advancedConfig = reactive({
   DEFAULT_DURATION: 7200,
   MAX_LOCK_DURATION: -1,
+  OVERNIGHT_ENABLED: false,
+  OVERNIGHT_START: '22:00',
+  OVERNIGHT_END: '09:00',
+  OVERNIGHT_TIMEZONE: 'Asia/Shanghai',
   FORBID_RELOCK: false,
   FEISHU_QUERY_PANEL: false,
   MAX_RESOURCES_PER_USER: -1,
@@ -776,6 +812,14 @@ onMounted(async () => {
           advancedConfig.DEFAULT_DURATION = overrides.DEFAULT_DURATION
         if (overrides.MAX_LOCK_DURATION != null)
           advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
+        for (const key of [
+          'OVERNIGHT_ENABLED',
+          'OVERNIGHT_START',
+          'OVERNIGHT_END',
+          'OVERNIGHT_TIMEZONE',
+        ]) {
+          if (overrides[key] != null) advancedConfig[key] = overrides[key]
+        }
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
         resourceViewLinkDays.value = overrides.RESOURCE_VIEW_LINK_DAYS ?? 'inherit'
         advancedConfig.FORBID_RELOCK = overrides.FORBID_RELOCK ?? false

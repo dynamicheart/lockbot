@@ -2,6 +2,7 @@
 pycryptodome
 requests
 six
+tzdata; sys_platform == "win32"
 
 # Backend (platform mode)
 fastapi

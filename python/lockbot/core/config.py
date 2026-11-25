@@ -55,6 +55,14 @@ _CONFIG_SCHEMA = {
         "default": 5 * 60,
         "description": "Expiry alert threshold in seconds (default 300 = 5min)",
     },
+    "OVERNIGHT_ENABLED": {"default": False, "description": "Allow bounded overnight leases", "env": False},
+    "OVERNIGHT_START": {"default": "22:00", "description": "Local evening start", "env": False},
+    "OVERNIGHT_END": {"default": "09:00", "description": "Local morning cutoff", "env": False},
+    "OVERNIGHT_TIMEZONE": {
+        "default": "Asia/Shanghai",
+        "description": "IANA timezone for overnight leases",
+        "env": False,
+    },
     "MAX_LOCK_DURATION": {
         "default": -1,
         "description": "Max lock duration in seconds, -1 means unlimited",
@@ -123,6 +131,12 @@ class Config:
         self._data = copy.deepcopy(self._default_config)
         if config_dict:
             self._data.update(normalize_label_settings(config_dict))
+        if config_dict and any(key.startswith("OVERNIGHT_") for key in config_dict):
+            from lockbot.core.overnight import window_settings
+
+            if not isinstance(self._data["OVERNIGHT_ENABLED"], bool):
+                raise ValueError("OVERNIGHT_ENABLED must be a boolean")
+            window_settings(self._data)
         self._normalize()
         cap = self.get_val("MAX_RESOURCES_PER_USER", -1)
         if isinstance(cap, bool) or not isinstance(cap, int) or (cap != -1 and cap < 1):

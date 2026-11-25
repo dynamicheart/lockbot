@@ -20,7 +20,6 @@ from lockbot.core.utils import (
     create_user_info,
     duration_to_seconds,
     find_user_info,
-    format_duration,
     remaining_duration,
     remove_user_info,
 )
@@ -186,8 +185,6 @@ class DeviceBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
             targets = [f"{node}:dev{dev}" for node, ids in zip(node_key_list, dev_ids_list, strict=True) for dev in ids]
@@ -195,6 +192,7 @@ class DeviceBot(BaseLockBot):
             if policy_error:
                 return policy_error
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
@@ -209,25 +207,10 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_in_use_or_shared", node_key=node_key)
                     )
 
-                if max_dur > 0 and user_id not in whitelist:
-                    for device in devices:
-                        total_duration = duration
-                        user_info = find_user_info(device["current_users"], user_id)
-                        if user_info:
-                            total_duration += user_info["duration"]
-                            start_time = user_info["start_time"]
-                        else:
-                            start_time = timestamp
-                        if remaining_duration(start_time, total_duration) > max_dur:
-                            return self.show_error(
-                                user_id,
-                                t(
-                                    "error.lock_max_duration_exceeded",
-                                    config=self.config,
-                                    max_duration=format_duration(max_dur, config=self.config),
-                                    whitelist_hint=self._whitelist_hint(),
-                                ),
-                            )
+                for device in devices:
+                    holder = find_user_info(device["current_users"], user_id)
+                    if limit.rejects(holder, duration):
+                        return limit.error(self, user_id, holder)
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
@@ -245,6 +228,7 @@ class DeviceBot(BaseLockBot):
 
                     user_info["duration"] = total_duration
                     user_info["is_notified"] = False
+                    limit.record(user_info)
                     device["current_users"] = [user_info]
 
             reply = self.adapter.build_reply(
@@ -265,8 +249,6 @@ class DeviceBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
             targets = [f"{node}:dev{dev}" for node, ids in zip(node_key_list, dev_ids_list, strict=True) for dev in ids]
@@ -274,6 +256,7 @@ class DeviceBot(BaseLockBot):
             if policy_error:
                 return policy_error
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
@@ -283,25 +266,10 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_exclusive_mode", node_key=node_key)
                     )
 
-                if max_dur > 0 and user_id not in whitelist:
-                    for device in devices:
-                        user_info = find_user_info(device["current_users"], user_id)
-                        if user_info:
-                            total_duration = user_info["duration"] + duration
-                            start_time = user_info["start_time"]
-                        else:
-                            total_duration = duration
-                            start_time = timestamp
-                        if remaining_duration(start_time, total_duration) > max_dur:
-                            return self.show_error(
-                                user_id,
-                                t(
-                                    "error.slock_max_duration_exceeded",
-                                    config=self.config,
-                                    max_duration=format_duration(max_dur, config=self.config),
-                                    whitelist_hint=self._whitelist_hint(),
-                                ),
-                            )
+                for device in devices:
+                    holder = find_user_info(device["current_users"], user_id)
+                    if limit.rejects(holder, duration):
+                        return limit.error(self, user_id, holder, shared=True)
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
@@ -316,6 +284,7 @@ class DeviceBot(BaseLockBot):
                     else:
                         user_info["duration"] += duration
                         user_info["is_notified"] = False
+                    limit.record(user_info)
 
             reply = self.adapter.build_reply(
                 self._msg_with_usage("success.resource_locked", node_key=node_key_list), [user_id]
