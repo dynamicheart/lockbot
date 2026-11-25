@@ -53,6 +53,22 @@ def test_agent_v2_documentation_links_to_quickstart(client, lang, heading):
     assert all(key in guide.text for key in ("resource_refs", "booking_ref", "Idempotency-Key"))
 
 
+def test_openapi_v2_documents_binding_rules_and_example(client):
+    from lockbot.backend.app.resource_api.v2.binding import BindingRuleDirectory
+
+    document = client.get(API + "/openapi.json").raise_for_status().json()
+    endpoint = document["paths"][API + "/bindings"]["get"]
+    schemas = document["components"]["schemas"]
+    for model in ("BindingLockRules", "BindingLowUtilizationRule", "IdleThresholds", "OvernightRule"):
+        for name, field in schemas[model]["properties"].items():
+            assert field.get("description"), f"{model}.{name} needs a field description"
+            assert f"`{name}`" in endpoint["description"] or f".{name}`" in endpoint["description"]
+    example = endpoint["responses"]["200"]["content"]["application/json"]["examples"]["bound"]["value"]
+    details = BindingRuleDirectory.model_validate(example).grants[0]
+    assert details.lock_rules.claim_window_seconds == 300
+    assert details.low_utilization.thresholds.accelerator_utilization_percent == [5.0]
+
+
 def test_openapi_v2_shows_command_examples_and_outcomes(client):
     from lockbot.backend.app.resource_api.v2.commands import Command
     from lockbot.metrics.gateway import validate_query
