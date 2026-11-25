@@ -43,6 +43,7 @@ dependencies = [
     "httpx",
     "slowapi",
     "pyzipper",
+    "Pygments",
     "bce-python-sdk",
 ]
 

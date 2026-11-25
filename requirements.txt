@@ -17,6 +17,7 @@ httpx
 # Backup
 bce-python-sdk
 pyzipper
+Pygments
 
 # Dev / Test
 pytest

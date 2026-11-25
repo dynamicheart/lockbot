@@ -20,9 +20,11 @@ from sqlalchemy import (
     case,
     delete,
     func,
+    literal,
     or_,
     select,
     tuple_,
+    union_all,
 )
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import SQLAlchemyError
@@ -230,11 +232,17 @@ def install_activity_middleware(app):
 
 
 def valid_binding_filter(bot, now):
-    from lockbot.core.platforms.registry import normalize_platform_name
+    from lockbot.core.platforms.registry import DEFAULT_PLATFORM, normalize_platform_name
 
+    # The service-wide inventory compares against joined bot rows.
+    platform = (
+        func.coalesce(func.nullif(func.lower(func.trim(Bot.platform)), ""), DEFAULT_PLATFORM)
+        if bot is Bot
+        else normalize_platform_name(bot.platform)
+    )
     return func.coalesce(
         and_(
-            ResourceBinding.platform == normalize_platform_name(bot.platform),
+            ResourceBinding.platform == platform,
             ResourceBinding.bound_bot_id == bot.id,
             ResourceBinding.bound_bot_uuid == bot.uuid,
             ResourceBinding.bound_identity_revision == bot.identity_revision,
@@ -486,6 +494,7 @@ def get_service_agent_activity(
     status: str = Query("active", pattern="^(active|history|all)$"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    include_legacy: bool = False,
     _user: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
@@ -501,6 +510,9 @@ def get_service_agent_activity(
     )
     query = (
         select(
+            literal("v2").label("version"),
+            literal(None, type_=String).label("bot_name"),
+            PersonalCredential.public_id.label("sort_key"),
             PersonalCredential.platform,
             PersonalCredential.external_user_id,
             active.label("active"),
@@ -513,17 +525,42 @@ def get_service_agent_activity(
         .select_from(PersonalCredential)
         .outerjoin(V2AgentActivity, V2AgentActivity.principal_id == PersonalCredential.public_id)
     )
+    if include_legacy:
+        legacy = (
+            select(
+                literal("v1").label("version"),
+                Bot.name.label("bot_name"),
+                ResourceBinding.public_id.label("sort_key"),
+                ResourceBinding.platform,
+                ResourceBinding.external_user_id,
+                valid_binding_filter(Bot, now).label("active"),
+                and_(
+                    ResourceBinding.credential_expires_at.is_not(None),
+                    ResourceBinding.credential_expires_at <= now,
+                ).label("expired"),
+                *(func.coalesce(getattr(AgentActivity, key), 0).label(key) for key in _COUNTERS),
+                AgentActivity.last_seen_at,
+            )
+            .select_from(ResourceBinding)
+            .outerjoin(Bot, Bot.id == ResourceBinding.bound_bot_id)
+            .outerjoin(AgentActivity, AgentActivity.binding_id == ResourceBinding.id)
+        )
+        query = union_all(query, legacy)
+    tokens = query.subquery()
+    filtered = select(tokens)
     if status != "all":
-        query = query.where(active if status == "active" else ~active)
-    total = db.scalar(select(func.count()).select_from(query.subquery()))
+        filtered = filtered.where(tokens.c.active if status == "active" else ~tokens.c.active)
+    total = db.scalar(select(func.count()).select_from(filtered.subquery()))
     rows = db.execute(
-        query.order_by(V2AgentActivity.last_seen_at.desc(), PersonalCredential.public_id)
+        filtered.order_by(tokens.c.last_seen_at.desc().nulls_last(), tokens.c.version, tokens.c.sort_key)
         .offset((page - 1) * limit)
         .limit(limit)
     ).mappings()
-    return {
-        "total": total,
-        "page": page,
-        "limit": limit,
-        "items": [dict(row, version="v2", row_key=f"{page}:{index}") for index, row in enumerate(rows)],
-    }
+    items = []
+    for index, row in enumerate(rows):
+        item = dict(row, row_key=f"{page}:{index}")
+        item.pop("sort_key")
+        if not include_legacy:
+            item.pop("bot_name")
+        items.append(item)
+    return {"total": total, "page": page, "limit": limit, "items": items}

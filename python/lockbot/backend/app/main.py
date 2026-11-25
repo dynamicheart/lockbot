@@ -988,7 +988,11 @@ def create_app() -> FastAPI:
         entries = [f'<li><a href="/api/public-docs/agent-v2">Agent API v2</a><p>{v2_description}</p></li>']
         for scope in public_doc_sections:
             label = "Agent API v1" if scope == "agent" else escape(t(f"public_docs.{scope}.title", lang=lang))
-            description = escape(t(f"public_docs.{scope}.description", lang=lang))
+            if scope == "agent":
+                label = f"<s>{label}</s>"
+                description = "Legacy reference" if lang == "en" else "旧版参考"
+            else:
+                description = escape(t(f"public_docs.{scope}.description", lang=lang))
             entries.append(f'<li><a href="/api/public-docs/{scope}">{label}</a><p>{description}</p></li>')
         schema_label = escape(t("public_docs.schema", lang=lang))
         return HTMLResponse(
@@ -1029,6 +1033,14 @@ def create_app() -> FastAPI:
           #swagger-ui .opblock-tag > small p { margin: 4px 0; }
         </style>
         """
+        if scope == "agent":
+            compact_style += """
+            <style>
+              #swagger-ui .info .title,
+              #swagger-ui .opblock-summary-path,
+              #swagger-ui .opblock-summary-description { text-decoration: line-through; }
+            </style>
+            """
         document = page.body.decode("utf-8").replace("</head>", compact_style + "</head>", 1)
         if is_v2:
             quickstart = "HTTP quickstart" if lang == "en" else "HTTP 快速开始"
