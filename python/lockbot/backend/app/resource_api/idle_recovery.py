@@ -17,11 +17,31 @@ CONFIRMATION_SECONDS = 10 * 60
 EXTRA_SECONDS = 10 * 60
 
 
-def idle_actions_allowed(config, now, since):
+def has_available_resource(state):
+    return any(
+        unit.get("status") == "idle" and not unit.get("booking_list")
+        for node in state.values()
+        for unit in (node if isinstance(node, tuple) else (node,))
+    )
+
+
+def resource_has_waiter(state, resource, holder):
+    _, node, card = resource
+    unit = state.get(node)
+    if card is not None:
+        unit = unit[card] if isinstance(unit, tuple) and 0 <= card < len(unit) else None
+    return unit is not None and any(user["user_id"] != holder for user in unit.get("booking_list", ()))
+
+
+def idle_actions_allowed(bot, notice, now):
+    config = bot.config
     if not config.get_val("IDLE_UTILIZATION_CHECK_ENABLED"):
         return False
     cutoff = latest_overnight_cutoff(config, now)
-    return cutoff is None or since >= cutoff
+    if cutoff is not None and notice.since < cutoff:
+        return False
+    state = bot.published_snapshot().state
+    return resource_has_waiter(state, notice.resource, notice.holder) or not has_available_resource(state)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,8 +81,11 @@ class IdleRecovery:
     def reconcile(self, index, evidence):
         """Publish new notices and remove cycles whose supporting observations were lost."""
         with self._lock:
+            # An unlocked resource may be reacquired by the same holder before the sample expires.
             candidates = {
-                resource: row for resource, row in evidence.items() if row.candidate and row.channel in ("chat", "api")
+                resource: row
+                for resource, row in evidence.items()
+                if row.candidate and row.channel in ("chat", "api") and (row.under_pressure or not row.active)
             }
             for resource in self._source_resources.get(index, set()) - candidates.keys():
                 self._notices.pop(resource, None)
@@ -122,7 +145,7 @@ class IdleRecovery:
             notice
             for notice in notices
             if (instance := self.manager.get_instance(notice.resource[0])) is not None
-            and idle_actions_allowed(instance.bot.config, now, notice.since)
+            and idle_actions_allowed(instance.bot, notice, now)
         ]
 
     def delivered(self, notice, *, group=False):
@@ -159,7 +182,7 @@ class IdleRecovery:
             if current is None or current.ref != notice.ref or not current.active:
                 return None
             now = self.clock()
-            if not idle_actions_allowed(bot.config, now, current.since):
+            if not idle_actions_allowed(bot, current, now):
                 return None
             version = bot.op_holding_version(bot.state.bot_state, node, card, holder, at=now)
             if version != current.version or current.delivered_at is None:
@@ -186,7 +209,7 @@ class IdleRecovery:
         bot_id, node, card = notice.resource
 
         def permit():
-            if not idle_actions_allowed(lease.bot.config, self.clock(), notice.since):
+            if not idle_actions_allowed(lease.bot, notice, self.clock()):
                 return False
             with self._lock:
                 latest = self._notices.get(notice.resource)
@@ -212,8 +235,7 @@ class IdleRecovery:
         return (
             deadline is not None
             and notice.active
-            and evidence.active
-            and evidence.candidate
+            and evidence.actionable
             and (notice.version, notice.since) == (evidence.version, evidence.since)
             and deadline <= evidence.observed_at <= now <= evidence.observed_at + max_age
         )

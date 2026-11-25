@@ -897,7 +897,7 @@ export default {
     earlyNotifyOff: '到期释放',
     idleUtilizationCheck: '20 分钟低利用率检查',
     idleUtilizationCheckHelp:
-      '只检查已接入后台采样的独占资源。未接入时，请在机器人详情中配置数据源，并登记后台采样目标。',
+      '只检查已接入后台采样的独占资源。同一机器人没有可直接申请的空闲资源，或当前资源有人排队时，才会触发提醒和回收。可在机器人详情中配置数据源并登记后台采样目标。',
     idleSampling: {
       unconfigured: '未配置数据源',
       waiting: '等待有效采样',

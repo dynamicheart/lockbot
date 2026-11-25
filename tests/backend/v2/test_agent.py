@@ -1684,6 +1684,7 @@ def test_v2_idle_recovery_notifies_and_confirms_exact_holding(
         refs = {row["node"]: row["resource_ref"] for row in resources}
         ref = refs["node-a"]
         post(holder, operation="lock", resource_refs=[ref], duration="1h").raise_for_status()
+        post(other, operation="book", resource_refs=[ref], duration="10m").raise_for_status()
 
         key = (bot_id, "node-a", None)
         version = bot.op_holding_version(bot.published_snapshot().state, "node-a", None, "holder", at=clock)

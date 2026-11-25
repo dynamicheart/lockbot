@@ -33,6 +33,8 @@ def inventory(tmp_path):
         bot = manager.get_instance(bot_id).bot
         target = "demo" if bot_id == 1 else "demo dev0"
         bot.lock("alice", f"lock {target} 1h")
+        spare = "other" if bot_id == 1 else "demo dev1"
+        bot.book("alice", f"book {spare} 1h")
         state = bot.published_snapshot().state["demo"]
         unit = state if bot_id == 1 else state[0]
         started = max(started, unit["current_users"][0]["start_time"])
@@ -567,6 +569,78 @@ def test_low_utilization_window_follows_the_same_holder(inventory, monkeypatch, 
             else:
                 assert bot.published_snapshot().state["demo"]["current_users"][0]["user_id"] == who
                 assert sent == ["warning"]
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("bot_id,target,spare,card", [(1, "demo", "other", None), (2, "demo dev0", "demo dev1", 0)])
+def test_idle_recovery_requires_bot_capacity_pressure_or_a_waiter(inventory, monkeypatch, bot_id, target, spare, card):
+    manager, targets, _ = inventory
+    bot = manager.get_instance(bot_id).bot
+    bot.unlock("alice", f"free {spare}")
+    bot.unlock("alice", f"free {target}")
+    now = start = int(time.time())
+    monkeypatch.setattr("time.time", lambda: now)
+    execute_text_command("alice", f"lock {target} 1h", bot, source="chat")
+    monitored = {**targets[bot_id - 1], "recover_idle": True}
+    config = policy.ObservationConfig.model_validate({"sources": [source([monitored])]})
+    observer = policy.IdleObserver(config, manager, clock=lambda: now)
+    sent = []
+    observer.chat_notification = lambda notice, kind: sent.append(kind) is None
+    resource = (bot_id, "demo", card)
+
+    async def exercise():
+        nonlocal now
+        transport = httpx.MockTransport(lambda _: response(now))
+        async with httpx.AsyncClient(transport=transport) as client:
+            for offset in range(0, 1261, 180):
+                now = start + offset
+                await observer.poll_source(0, client)
+            assert resource not in observer.candidates
+            assert sent == []
+
+            bot.book("bob", f"book {target} 10m")
+            await observer.poll_source(0, client)
+            (first,) = observer.recovery.for_holder("alice", {bot_id}, channel="chat")
+            assert first.since == start
+            assert sent == ["warning"]
+
+            bot.unlock("bob", f"free {target}")
+            assert not observer.recovery.for_holder("alice", {bot_id}, channel="chat")
+            for offset in (1440, 1620, 1800, 1860):
+                now = start + offset
+                await observer.poll_source(0, client)
+            assert resource not in observer.candidates
+            assert sent == ["warning"]
+
+            other_bot = manager.get_instance(3 - bot_id).bot
+            other_spare = "demo dev1" if bot_id == 1 else "other"
+            other_bot.unlock("alice", f"free {other_spare}")
+            bot.lock("charlie", f"lock {spare} 1h")
+            await observer.poll_source(0, client)
+            (second,) = observer.recovery.for_holder("alice", {bot_id}, channel="chat")
+            assert second.ref != first.ref
+            assert second.review_at == now + 600
+            for offset in (180, 360, 540):
+                now = second.delivered_at + offset
+                await observer.poll_source(0, client)
+
+            if card is None:
+                reclaim_ready = observer.recovery.reclaim_ready
+
+                def release_spare_before_reclaim(evidence, max_age):
+                    assert evidence[resource].actionable
+                    bot.unlock("charlie", f"free {spare}")
+                    return reclaim_ready(evidence, max_age)
+
+                monkeypatch.setattr(observer.recovery, "reclaim_ready", release_spare_before_reclaim)
+            now = second.review_at
+            await observer.poll_source(0, client)
+            if card is None:
+                assert sent == ["warning", "warning"]
+                assert bot.published_snapshot().state["demo"]["status"] == "exclusive"
+            else:
+                assert sent == ["warning", "warning", "released"]
 
     asyncio.run(exercise())
 

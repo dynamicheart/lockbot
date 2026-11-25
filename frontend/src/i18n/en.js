@@ -930,7 +930,7 @@ export default {
     earlyNotifyOff: 'Release on Expiry',
     idleUtilizationCheck: '20-minute low utilization check',
     idleUtilizationCheckHelp:
-      'Checks exclusive resources with background sampling. Configure a data source on the bot details page and register sampling targets.',
+      'Applies to exclusive resources with background sampling. Reminders and reclamation require either no unreserved idle resources on this bot or a waiter for the current resource. Configure the data source in the bot details and register background sampling targets.',
     idleSampling: {
       unconfigured: 'Data source not configured',
       waiting: 'Waiting for valid samples',

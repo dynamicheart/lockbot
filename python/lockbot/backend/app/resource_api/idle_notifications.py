@@ -64,7 +64,7 @@ class IdleChat:
                 resource = _resource_label(notice.resource)
                 if kind == "warning":
                     now = self.clock()
-                    if not idle_actions_allowed(bot.config, now, notice.since) or notice.version != (
+                    if not idle_actions_allowed(bot, notice, now) or notice.version != (
                         bot.op_holding_version(bot.published_snapshot().state, node, card, notice.holder, at=now)
                     ):
                         return False
