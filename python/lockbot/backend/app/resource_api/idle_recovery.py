@@ -25,7 +25,10 @@ class IdleNotice:
     version: str
     since: float
     generation: int
+    utilization_percent: float
+    threshold_percent: float
     delivered_at: float | None = None
+    group_delivered: bool = False
     confirmed: bool = False
 
     @property
@@ -61,7 +64,15 @@ class IdleRecovery:
                 if notice is not None and (notice.version, notice.since) == (row.version, row.since):
                     continue
                 notice = IdleNotice(
-                    token_urlsafe(12), resource, row.holder, row.channel, row.version, row.since, row.generation
+                    token_urlsafe(12),
+                    resource,
+                    row.holder,
+                    row.channel,
+                    row.version,
+                    row.since,
+                    row.generation,
+                    row.utilization_percent,
+                    row.threshold_percent,
                 )
                 self._notices[resource] = notice
                 created.append(notice)
@@ -72,17 +83,20 @@ class IdleRecovery:
             return [
                 notice
                 for notice in self._notices.values()
-                if notice.holder == holder and notice.resource[0] in bot_ids and notice.channel == channel
+                if notice.holder == holder
+                and notice.resource[0] in bot_ids
+                and (notice.channel == channel or channel == "chat" and notice.group_delivered)
             ]
 
-    def delivered(self, notice):
+    def delivered(self, notice, *, group=False):
         """Begin the confirmation window after a transport accepts the reminder."""
         with self._lock:
             current = self._notices.get(notice.resource)
             if current is None or current.ref != notice.ref:
                 return None
-            if current.delivered_at is None:
-                current = replace(current, delivered_at=self.clock())
+            if current.delivered_at is None or group and not current.group_delivered:
+                delivered_at = self.clock() if current.delivered_at is None else current.delivered_at
+                current = replace(current, delivered_at=delivered_at, group_delivered=current.group_delivered or group)
                 self._notices[notice.resource] = current
             return current
 

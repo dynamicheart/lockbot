@@ -71,6 +71,11 @@ _CONFIG_SCHEMA = {
         "default": False,
         "description": "True: warn before expiry; False: release and notify on expiry",
     },
+    "GROUP_REMIND_AGENT_IDLE": {
+        "default": False,
+        "description": "Send group reminders for low-utilization Agent locks",
+        "env": False,
+    },
     "GROUP_REMIND_API_RESOURCES": {
         "default": False,
         "description": "Include API holdings and bookings in automatic group reminders",

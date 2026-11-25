@@ -136,6 +136,8 @@ class IdleEvidence:
     holder: str
     channel: str
     generation: int
+    utilization_percent: float
+    threshold_percent: float
 
     @property
     def candidate(self):
@@ -184,17 +186,28 @@ def _advance(previous, version, holder, now, metrics, devices, source, generatio
         or now - observed_at > source.max_sample_age_seconds
     ):
         return None
+    utilization = 0.0
     for device in devices:
         value = metrics.get((UTILIZATION, device))
         if value is None or not 0 <= value < source.threshold_percent:
             return None
+        utilization = max(utilization, value)
     since = observed_at
     if previous is not None and previous.version == version:
         if observed_at < previous.observed_at:
             return None
         if observed_at - previous.observed_at <= source.max_sample_age_seconds:
             since = previous.since
-    return IdleEvidence(version, since, observed_at, holder["user_id"], holder.get("source", "unknown"), generation)
+    return IdleEvidence(
+        version,
+        since,
+        observed_at,
+        holder["user_id"],
+        holder.get("source", "unknown"),
+        generation,
+        utilization,
+        source.threshold_percent,
+    )
 
 
 def _scoped_holdings(bot, target, state, inventory, now):
@@ -296,12 +309,13 @@ class IdleObserver:
             created = self.recovery.reconcile(index, evidence)
             if self.chat_notification is not None:
                 for notice in created:
-                    if notice.channel == "chat" and await asyncio.to_thread(self.chat_notification, notice, "warning"):
-                        self.recovery.delivered(notice)
+                    if await asyncio.to_thread(self.chat_notification, notice, "warning"):
+                        self.recovery.delivered(notice, group=True)
             reclaimed = await asyncio.to_thread(self.recovery.reclaim_ready, evidence, source.max_sample_age_seconds)
             if self.chat_notification is not None:
                 for notice in reclaimed:
-                    await asyncio.to_thread(self.chat_notification, notice, "released")
+                    if notice.channel == "chat" or notice.group_delivered:
+                        await asyncio.to_thread(self.chat_notification, notice, "released")
 
     def _observe_bot(self, lease, targets, source, metrics, now, previous, current):
         bot = lease.bot

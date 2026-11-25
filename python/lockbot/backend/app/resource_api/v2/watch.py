@@ -234,6 +234,8 @@ async def watch_resources(
                                 "confirm_by": notice.confirm_by,
                                 "review_at": notice.review_at,
                                 "confirmed": notice.confirmed,
+                                "utilization_percent": notice.utilization_percent,
+                                "threshold_percent": notice.threshold_percent,
                             },
                         )
                         recovery.delivered(notice)

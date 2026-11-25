@@ -893,6 +893,8 @@ export default {
     earlyNotifyHelp: '开启：到期前发预警但不释放；关闭（默认）：到期后立即释放并通知',
     earlyNotifyOn: '提前预警',
     earlyNotifyOff: '到期释放',
+    groupRemindAgentIdle: 'Agent 锁定的低利用率提醒发到群里',
+    groupRemindAgentIdleHelp: '持有人收到群提醒后，可直接在群里确认保留。',
     groupRemindApiResources: 'API 操作的资源提醒也发到群里',
     groupRemindApiResourcesHelp: '适用于续锁、到期和排队的自动提醒。',
     durationWhitelist: '锁定时长白名单',
