@@ -110,15 +110,31 @@
               <el-option value="direct" :label="$t('feishu.proxyDirect')" />
               <el-option value="custom" :label="$t('feishu.proxyCustom')" />
             </el-select>
-            <el-input
-              v-if="form.feishu_proxy_mode === 'custom'"
-              v-model="form.feishu_proxy_url"
-              type="textarea"
-              :autosize="{ minRows: 4, maxRows: 8 }"
-              :aria-label="$t('feishu.proxy')"
-            />
-            <div v-if="form.feishu_proxy_mode === 'custom'" class="platform-hint">
-              {{ $t('feishu.proxyAddresses') }}
+            <div v-if="form.feishu_proxy_mode === 'custom'" class="proxy-addresses">
+              <div v-for="(entry, index) in proxyAddresses" :key="entry.id" class="proxy-address-row">
+                <el-input
+                  v-model="entry.address"
+                  :aria-label="$t('feishu.proxyAddress', { number: index + 1 })"
+                  placeholder="http://proxy.example.invalid:8080"
+                />
+                <el-button
+                  :icon="Minus"
+                  circle
+                  :aria-label="$t('feishu.proxyRemoveAddress', { number: index + 1 })"
+                  @click="proxyAddresses.splice(index, 1)"
+                />
+              </div>
+              <el-tooltip :content="$t('feishu.proxyAddresses')" placement="top">
+                <span class="proxy-add">
+                  <el-button
+                    :icon="Plus"
+                    :disabled="proxyAddresses.length >= MAX_FEISHU_PROXIES"
+                    @click="proxyAddresses.push(proxyAddressRow())"
+                  >
+                    {{ $t('feishu.proxyAddAddress') }}
+                  </el-button>
+                </span>
+              </el-tooltip>
             </div>
             <div class="proxy-effective platform-hint">
               {{ $t('feishu.proxyEffective') }}:
@@ -312,7 +328,7 @@
 import { ref, watch, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { Check, QuestionFilled } from '@element-plus/icons-vue'
+import { Check, Minus, Plus, QuestionFilled } from '@element-plus/icons-vue'
 import api from '../../utils/api'
 import SiteBroadcast from '../../components/SiteBroadcast.vue'
 import FeishuApplications from '../../components/FeishuApplications.vue'
@@ -376,6 +392,12 @@ function formatStatusTime(iso) {
   return isNaN(d) ? iso : d.toLocaleString()
 }
 
+const MAX_FEISHU_PROXIES = 8
+const proxyAddresses = ref([])
+let proxyRowId = 0
+function proxyAddressRow(address = '') {
+  return { id: ++proxyRowId, address }
+}
 const proxyInfo = ref({})
 const testingProxy = ref(false)
 const proxyResult = ref('')
@@ -406,6 +428,11 @@ async function fetchSettings() {
         form.value[item.key] = item.value || ''
       }
     }
+    proxyAddresses.value = form.value.feishu_proxy_url
+      .split(/[,\r\n]+/)
+      .map((address) => address.trim())
+      .filter(Boolean)
+      .map(proxyAddressRow)
   } catch {
     // handled by api interceptor
   } finally {
@@ -459,7 +486,9 @@ async function fetchSchedulerStatus() {
 async function handleSave() {
   saving.value = true
   try {
-    const result = await api.put('/admin/settings', { settings: form.value })
+    const urls = proxyAddresses.value.map((entry) => entry.address.trim()).filter(Boolean)
+    const settings = { ...form.value, feishu_proxy_url: urls.join('\n') }
+    const result = await api.put('/admin/settings', { settings })
     await refreshProxy()
     proxyResult.value =
       result.data.feishu_proxy_status === 'restart_required'
@@ -602,6 +631,25 @@ onMounted(() => {
   max-width: 640px;
   display: grid;
   gap: 8px;
+}
+.proxy-addresses {
+  display: grid;
+  gap: 8px;
+}
+.proxy-address-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.proxy-address-row .el-input {
+  min-width: 0;
+  flex: 1;
+}
+.proxy-address-row .el-button {
+  flex: none;
+}
+.proxy-add {
+  justify-self: start;
 }
 .platform-options {
   display: flex;

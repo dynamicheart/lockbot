@@ -90,6 +90,11 @@ _CONFIG_SCHEMA = {
         "default": False,
         "description": "Include API holdings and bookings in automatic group reminders",
     },
+    "DAILY_UTILIZATION_REPORT_ENABLED": {
+        "default": False,
+        "description": "Send the previous day's resource utilization report to this bot's group",
+        "env": False,
+    },
     "QUEUE_AUTO_LOCK": {
         "default": False,
         "description": "Automatically lock an available resource for the first booking",
@@ -170,6 +175,8 @@ class Config:
             raise ValueError("FEISHU_REACTION_REPLIES must be a boolean")
         if not isinstance(self.get_val("FORBID_RELOCK", False), bool):
             raise ValueError("FORBID_RELOCK must be a boolean")
+        if not isinstance(self.get_val("DAILY_UTILIZATION_REPORT_ENABLED"), bool):
+            raise ValueError("DAILY_UTILIZATION_REPORT_ENABLED must be a boolean")
         if not isinstance(self.get_val("QUEUE_AUTO_LOCK"), bool):
             raise ValueError("QUEUE_AUTO_LOCK must be a boolean")
 
