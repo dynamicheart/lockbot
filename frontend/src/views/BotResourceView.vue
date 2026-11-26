@@ -97,6 +97,7 @@
             <span v-if="row.hardware?.length" class="node-hardware">
               {{ row.hardware.map(({ model, count }) => `${model}×${count}`).join(' · ') }}
             </span>
+            <SharedNodeAddress v-if="row.node_access" :address="row.node_access" />
           </template>
           <template v-if="metrics.enabled" #metrics="{ row }">
             <ResourceMetricsCell
@@ -119,6 +120,7 @@
               <el-tag size="small" :type="isIdleResource(resource) ? 'success' : 'warning'">{{
                 statusText(resource)
               }}</el-tag>
+              <SharedNodeAddress v-if="resource.node_access" :address="resource.node_access" />
             </div>
           </div>
           <template v-if="resource.devices">
@@ -208,6 +210,7 @@ import ResourceParticipants from '../components/ResourceParticipants.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
+import SharedNodeAddress from '../components/SharedNodeAddress.vue'
 import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
 import { resourceViewDeadline } from '../utils/resourceViewLifetime'
 
@@ -353,6 +356,7 @@ const displayResources = computed(() =>
           display_name: `${node.id} dev${device.id}`,
           metric_node_id: node.id,
           metric_resource_id: device.resource_id,
+          node_access: node.node_access,
           alias: [node.alias, device.dev_model].filter(Boolean).join(' · '),
         }))
       )

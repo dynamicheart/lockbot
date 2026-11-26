@@ -50,10 +50,36 @@ def test_preview_patch_merge_and_remove_are_private(client, api, admin_header, d
     view = client.get("/api/agent/context", headers=api["headers"]).json()["view_url"]
     view_code = urlsplit(view).fragment.rsplit("/", 1)[1]
     share = client.get(f"/api/bot-views/{api['bot_id']}/state", headers={"Authorization": "Bearer " + view_code})
-    assert share.status_code == 200 and HOST not in share.text
+    assert share.status_code == 200
+    assert {node["id"]: node["node_access"] for node in share.json()["resources"]} == {
+        "n1": {"host": HOST, "port": 22},
+        "n2": {"host": "192.0.2.20", "port": 22},
+    }
     assert client.delete(path + "/n1", headers=owner).status_code == 204
     assert client.get(path, headers=owner).json()["nodes"] == {"n2": {"host": "192.0.2.20", "port": 22}}
     assert all(HOST not in (row.detail or "") for row in db_session.query(AuditLog))
+
+
+def test_shared_view_exposes_only_registered_addresses_with_a_valid_link(client, api):
+    _, path = _routes(api)
+    address = {"host": HOST, "ip": "192.0.2.41", "port": 2222}
+    assert (
+        client.put(
+            path,
+            headers=api["auth_header"],
+            json={"version": 2, "nodes": {"n1": {**address, "method": "internal-method", "note": "internal-note"}}},
+        ).status_code
+        == 200
+    )
+    share_path = f"/api/bot-views/{api['bot_id']}/state"
+    assert client.get(share_path).status_code == 403
+    share_url = client.get("/api/agent/context", headers=api["headers"]).json()["view_url"]
+    code = urlsplit(share_url).fragment.rsplit("/", 1)[1]
+    response = client.get(share_path, headers={"Authorization": f"Bearer {code}"}).raise_for_status()
+    resources = {node["id"]: node for node in response.json()["resources"]}
+    assert resources["n1"]["node_access"] == address
+    assert "node_access" not in resources["n2"]
+    assert "internal-method" not in response.text and "internal-note" not in response.text
 
 
 @pytest.mark.parametrize(

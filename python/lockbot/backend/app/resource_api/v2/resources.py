@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from lockbot.backend.app.bots.datasource import agent_metrics_source
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring, bot_manager
 from lockbot.backend.app.bots.models import Bot
-from lockbot.backend.app.bots.node_access import saved_node_access
+from lockbot.backend.app.bots.node_access import node_login_address, saved_node_access
 from lockbot.backend.app.bots.node_inventory import inventory_document, resource_node_hardware
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.resource_api import errors
@@ -644,7 +644,7 @@ def query_resource_page(
     for row in rows[:limit]:
         bot_id = authorized.get(row["grant_ref"])
         if login := addresses.get(bot_id, {}).get(row["node"]):
-            row["node_access"] = {key: login[key] for key in ("host", "ip", "port") if key in login}
+            row["node_access"] = node_login_address(login)
         sample = attributes.get(bot_id, {}).get(row["node"], {})
         if sample.get("attributes") or sample.get("devices"):
             row["node_attributes"] = {

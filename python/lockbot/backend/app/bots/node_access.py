@@ -132,6 +132,11 @@ def saved_node_access(bot):
     return {node: access for node, access in saved.items() if node in allowed_nodes}
 
 
+def node_login_address(access):
+    """Project the registered SSH address without private login instructions."""
+    return {field: access[field] for field in ("host", "ip", "port") if field in access}
+
+
 def serialize_node_access(nodes):
     return json.dumps({"version": mapping_version(nodes), "nodes": nodes}, ensure_ascii=False) if nodes else None
 

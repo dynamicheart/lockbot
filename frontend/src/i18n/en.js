@@ -70,9 +70,8 @@ export default {
     hostname: 'Hostname',
     ipAddress: 'IP address',
     sshPort: 'SSH port',
-    sharedUnavailable: 'Login address unavailable.',
     purpose:
-      'Resource holders can see the node’s SSH address and port in the personal workbench or through an Agent.',
+      'Anyone with a valid resource link can see the registered hostname, IP address, and SSH port.',
     help: 'Paste the node mapping JSON or ask an Agent to generate it.',
     copyPrompt: 'Copy Agent prompt',
     mapping: 'Node mapping JSON',
