@@ -585,13 +585,6 @@ class BaseLockBot:
             reply_info += "\n"
         return self.adapter.build_reply(reply_info, [user_id])
 
-    def _personal_panel_url(self):
-        getter = self.config.get_val("_PERSONAL_PANEL_URL")
-        try:
-            return getter() if callable(getter) else ""
-        except Exception:
-            return ""
-
     def _agent_skill_url(self):
         getter = self.config.get_val("_AGENT_SKILL_URL")
         if not callable(getter):

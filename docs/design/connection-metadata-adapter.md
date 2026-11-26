@@ -1,5 +1,7 @@
 # Optional proven-connection metadata adapter
 
+> Historical design for the dashboard retired in [LockBot 3.5.0](../releases/3.5.0.md). Use `lb` for personal resource access.
+
 This additive panel protocol supplies secret-free Agent handoff instructions for
 one already-proven connection. It does not reveal keys, authorize resource writes,
 or enable credential viewing/reset. Native `NativeProvider` remains on v1; an

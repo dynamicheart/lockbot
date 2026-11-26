@@ -1071,9 +1071,12 @@ def create_app() -> FastAPI:
         body = files("lockbot.backend.app.resource_api").joinpath("configuration_agents.md").read_text(encoding="utf-8")
         return Response(body, media_type="text/plain")
 
-    from lockbot.backend.app.personal_panel.setup import mount_if_configured
-
-    mount_if_configured(app)
+    @app.api_route("/api/personal-panel", methods=["GET", "HEAD", "POST"], include_in_schema=False)
+    @app.api_route("/api/personal-panel/{path:path}", methods=["GET", "HEAD", "POST"], include_in_schema=False)
+    def retired_personal_panel():
+        raise HTTPException(
+            410, "The personal resource dashboard has been retired.", headers={"Cache-Control": "no-store"}
+        )
 
     trace_review_directory = os.environ.get("LOCKBOT_TRACE_REVIEW_DIR")
     if trace_review_directory:

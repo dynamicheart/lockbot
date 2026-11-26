@@ -248,7 +248,7 @@ def rotate_confirmed_credential(
     instance_id: str,
     canonical_name: str,
     deadline: float,
-    source: str = "personal_panel",
+    source: str,
     commit: bool = True,
 ) -> str:
     """Transactionally replace one current key after fresh, purpose-bound consent.
