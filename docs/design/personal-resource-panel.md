@@ -1,5 +1,7 @@
 # Personal resource dashboard
 
+> Historical design for the dashboard retired in [LockBot 3.5.0](../releases/3.5.0.md). Use `lb` for personal resource access.
+
 A user can bookmark `/#/me` on their organization's Lockbot HTTPS origin. A headless Agent can authorize the first browser visit with the user's existing IM binding. Browser sessions last up to 30 days, including across restarts, subject to the continued validity of each binding. The dashboard displays personal allocations, reservations and secret-free metadata for individually authorized native connections.
 
 ## Identity and access

@@ -14,6 +14,7 @@ from lockbot.backend.app.bots.manager import (
     bot_manager,
 )
 from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.bots.node_access import node_login_address, saved_node_access
 from lockbot.backend.app.bots.node_inventory import resource_node_hardware
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
@@ -135,9 +136,12 @@ def view_state(bot_id: int, request: Request, response: Response, db: Session = 
             # Re-check expiry after assembling the payload; cached state is never cached authorization.
             bot, window = _authorized(db, bot_id, request, fresh=True)
             hardware = resource_node_hardware(bot)
+            addresses = saved_node_access(bot)
             for resource in resources:
                 if models := hardware.get(resource["id"]):
                     resource["hardware"] = models
+                if address := addresses.get(resource["id"]):
+                    resource["node_access"] = node_login_address(address)
             from lockbot.backend.app.bots.metrics_access import issue_metrics_access
             from lockbot.core.resource_policy import public_policy
 

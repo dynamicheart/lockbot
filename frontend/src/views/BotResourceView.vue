@@ -30,9 +30,6 @@
                 })
               }}
             </span>
-            <router-link v-if="showPersonalPanelLink" :to="{ name: 'PersonalResources' }">
-              {{ $t('nodeAccess.workbenchAddress') }}
-            </router-link>
           </div>
         </div>
         <el-tooltip :content="$t('resourceView.autoRefreshHint')" :trigger="['hover', 'focus']">
@@ -100,13 +97,7 @@
             <span v-if="row.hardware?.length" class="node-hardware">
               {{ row.hardware.map(({ model, count }) => `${model}×${count}`).join(' · ') }}
             </span>
-            <SharedNodeAddress
-              v-if="hasAddress(row.metric_node_id || row.id)"
-              :node="row.metric_node_id || row.id"
-              :clock="clock"
-              :revision="addressRevision"
-              :load="loadAddress"
-            />
+            <SharedNodeAddress v-if="row.node_access" :address="row.node_access" />
           </template>
           <template v-if="metrics.enabled" #metrics="{ row }">
             <ResourceMetricsCell
@@ -129,13 +120,7 @@
               <el-tag size="small" :type="isIdleResource(resource) ? 'success' : 'warning'">{{
                 statusText(resource)
               }}</el-tag>
-              <SharedNodeAddress
-                v-if="hasAddress(resource.id)"
-                :node="resource.id"
-                :clock="clock"
-                :revision="addressRevision"
-                :load="loadAddress"
-              />
+              <SharedNodeAddress v-if="resource.node_access" :address="resource.node_access" />
             </div>
           </div>
           <template v-if="resource.devices">
@@ -228,7 +213,6 @@ import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import SharedNodeAddress from '../components/SharedNodeAddress.vue'
 import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
 import { resourceViewDeadline } from '../utils/resourceViewLifetime'
-import { personalPanelWebDisabled } from '../utils/personalPanelWeb'
 
 const route = useRoute()
 const router = useRouter()
@@ -240,12 +224,6 @@ const loading = ref(false)
 const invalid = ref(false)
 const failed = ref(false)
 const clock = ref(Date.now())
-const availableAddresses = ref(new Map())
-const addressAuthorizationRequired = ref(false)
-const showPersonalPanelLink = computed(
-  () => !personalPanelWebDisabled && addressAuthorizationRequired.value
-)
-const addressRevision = ref(0)
 let token = ''
 let botId = ''
 let deadline = 0
@@ -276,61 +254,6 @@ function clear() {
   deadline = 0
   loading.value = false
   invalid.value = true
-  resetAddresses()
-}
-function resetAddresses() {
-  availableAddresses.value = new Map()
-  addressAuthorizationRequired.value = false
-}
-function hasAddress(node) {
-  return availableAddresses.value.get(node) > clock.value
-}
-function addressDeadline(expiresAt, serverTime, requestedAt) {
-  return requestedAt + (Date.parse(expiresAt) - Date.parse(serverTime))
-}
-function requestAddress(node, signal) {
-  return fetch(`/api/personal-panel/shared-node-access/${encodeURIComponent(botId)}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ node_id: node }),
-    credentials: 'same-origin',
-    cache: 'no-store',
-    redirect: 'error',
-    referrerPolicy: 'no-referrer',
-    signal,
-  })
-}
-async function refreshAddresses(epoch, signal) {
-  if (snapshot.value?.health !== 'running' || !snapshot.value.resources.length) {
-    resetAddresses()
-    return
-  }
-  try {
-    const requestedAt = Date.now()
-    const response = await requestAddress('', signal)
-    const data = response.ok ? await response.json() : null
-    if (epoch !== requestEpoch || document.hidden) return
-    availableAddresses.value = new Map(
-      Object.entries(data?.nodes || {}).map(([node, expiry]) => [
-        node,
-        addressDeadline(expiry, data.server_time, requestedAt),
-      ])
-    )
-    addressAuthorizationRequired.value = response.status === 401 || response.status === 403
-    addressRevision.value++
-  } catch {
-    if (epoch === requestEpoch) resetAddresses()
-  }
-}
-async function loadAddress(node, signal) {
-  const generation = viewGeneration
-  if (!hasAddress(node) || expired()) return null
-  const requestedAt = Date.now()
-  const response = await requestAddress(node, signal)
-  if (!response.ok) return null
-  const data = await response.json()
-  if (generation !== viewGeneration || !hasAddress(node)) return null
-  return { ...data, deadline: addressDeadline(data.expires_at, data.server_time, requestedAt) }
 }
 function expired() {
   if (deadline && Date.now() >= deadline) {
@@ -379,13 +302,10 @@ async function refresh() {
         name: 'CompactBotResourceView',
         params: { id: botId, code: compact[2] },
       })
-    } else {
-      void refreshAddresses(epoch, controller.signal)
     }
   } catch (error) {
     if (error.name !== 'AbortError' && epoch === requestEpoch) {
       failed.value = true
-      resetAddresses()
     }
   } finally {
     if (epoch === requestEpoch) loading.value = false
@@ -415,8 +335,7 @@ const tick = setInterval(() => {
 }, 1000)
 const poll = setInterval(refresh, refreshIntervalMs)
 const visible = () => {
-  if (document.hidden) resetAddresses()
-  else if (!expired()) refresh()
+  if (!document.hidden && !expired()) refresh()
 }
 document.addEventListener('visibilitychange', visible)
 onBeforeUnmount(() => {
@@ -437,6 +356,7 @@ const displayResources = computed(() =>
           display_name: `${node.id} dev${device.id}`,
           metric_node_id: node.id,
           metric_resource_id: device.resource_id,
+          node_access: node.node_access,
           alias: [node.alias, device.dev_model].filter(Boolean).join(' · '),
         }))
       )

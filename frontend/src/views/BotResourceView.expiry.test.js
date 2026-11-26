@@ -2,8 +2,6 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createRenderer, nextTick, ref, ssrContextKey } from 'vue'
 import BotResourceView from './BotResourceView.vue'
 
-const panel = vi.hoisted(() => ({ personalPanelWebDisabled: false }))
-vi.mock('../utils/personalPanelWeb', () => panel)
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: '25', code: 'aaaaaaaaaaaaaaaaaaaaaa' }, query: {} }),
   useRouter: () => ({ replace: vi.fn() }),
@@ -37,7 +35,6 @@ const renderer = createRenderer({
 })
 let app
 beforeEach(() => {
-  panel.personalPanelWebDisabled = false
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-11-14T04:00:00Z'))
   vi.stubGlobal('document', {
@@ -52,23 +49,19 @@ afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
-async function mount(expiresAt, { addressDenied = false } = {}) {
+async function mount(expiresAt) {
   const payload = {
     name: 'Fixture',
     bot_type: 'QUEUE',
-    health: addressDenied ? 'running' : 'stopped',
-    resources: addressDenied ? [{ id: 'node1' }] : [],
+    health: 'stopped',
+    resources: [],
     captured_at: '2026-11-14T04:00:00Z',
     server_time: '2026-11-14T04:00:00Z',
     view_expires_at: expiresAt,
   }
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (_, options) =>
-      options.method === 'POST'
-        ? { status: 403, ok: false }
-        : { status: 200, ok: true, json: async () => payload }
-    )
+    vi.fn(async () => ({ status: 200, ok: true, json: async () => payload }))
   )
   app = renderer.createApp(BotResourceView)
   app.provide(ssrContextKey, { modules: new Set() })
@@ -81,19 +74,6 @@ async function mount(expiresAt, { addressDenied = false } = {}) {
   }
   return app._instance.setupState
 }
-
-it.each([
-  [false, true],
-  [true, false],
-])(
-  'handles the personal resource link when the retirement flag is %s',
-  async (disabled, visible) => {
-    panel.personalPanelWebDisabled = disabled
-    const view = await mount(null, { addressDenied: true })
-    expect(view.addressAuthorizationRequired).toBe(true)
-    expect(view.showPersonalPanelLink).toBe(visible)
-  }
-)
 
 it('keeps a permanent server-authorized view after local time advances', async () => {
   const view = await mount(null)

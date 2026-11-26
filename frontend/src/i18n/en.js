@@ -70,10 +70,8 @@ export default {
     hostname: 'Hostname',
     ipAddress: 'IP address',
     sshPort: 'SSH port',
-    sharedUnavailable: 'Login address unavailable.',
-    workbenchAddress: 'Find login addresses in My Resources',
     purpose:
-      'Resource holders can see the node’s SSH address and port in the personal workbench or through an Agent.',
+      'Anyone with a valid resource link can see the registered hostname, IP address, and SSH port.',
     help: 'Paste the node mapping JSON or ask an Agent to generate it.',
     copyPrompt: 'Copy Agent prompt',
     mapping: 'Node mapping JSON',
@@ -836,7 +834,6 @@ export default {
   },
   nav: {
     apiCredentials: 'API credentials',
-    myResources: 'My resources',
     dashboard: 'Dashboard',
     myBots: 'My Bots',
     createBot: 'Create Bot',
@@ -1092,33 +1089,7 @@ export default {
   personalWorkbench: {
     retired: 'Personal resource dashboard retired',
     retiredDescription: 'Use the LockBot CLI to find, request, and manage resources.',
-    title: 'Personal workbench',
-    navigation: 'Primary navigation',
-    myAllocations: 'My allocations',
-    resourceGroups: 'Resource groups',
-    myCredentials: 'My credentials',
     console: 'Bot console',
-    more: 'More',
-    clearBrowser: 'Clear this browser’s access',
-    clearBrowserTitle: 'Clear this browser’s access?',
-    clearBrowserDetail:
-      'You’ll need to authorize this browser again to view personal resources. Agent keys stay valid.',
-    clearBrowserConfirm: 'Clear access',
-    plugins: {
-      title: 'Loaded plugins',
-      reporterTitle: 'External resources',
-      reporterDescription: 'Show your allocations and reservations from other LockBot services.',
-      reporterLoaded:
-        'The service has loaded {count} resource reporting plugin | The service has loaded {count} resource reporting plugins',
-      reporterNotLoaded: 'The service has no resource reporting plugins',
-      reporterVisible: 'Sources visible to this session',
-      reporterUnknown: 'No external source identified for this session',
-      loadingSources: 'Loading resource sources',
-      metricsTitle: 'Utilization sources',
-      metricsDescription: 'See node and device utilization in authorized resource details.',
-      metricsConfigured: 'A utilization source is configured for resources you hold',
-      metricsUnavailable: 'No utilization source for resources you hold',
-    },
   },
   personalAgentActivity: {
     title: 'Agent activity',
