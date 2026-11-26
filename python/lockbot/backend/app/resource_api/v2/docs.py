@@ -24,6 +24,7 @@ _GRANT_RULES_EXAMPLE = {
         "duration_limit_exempt": False,
         "max_resources_per_user": 4,
         "claim_window_seconds": 300,
+        "queue_auto_lock": False,
         "renew_allowed": True,
         "shared_lock_supported": False,
         "overnight": _OVERNIGHT_EXAMPLE,
@@ -152,6 +153,7 @@ curl -fsS "$LOCKBOT_URL/api/agent/v2/identity-tickets" \\
 | `duration_limit_exempt` | 当前调用者是否免受时长上限约束。其他配额和权限照常生效。 |
 | `max_resources_per_user` | 每位用户持有与排队合计的不同资源数上限。`-1` 表示此规则不限数量。 |
 | `claim_window_seconds` | 预约就绪通知发出后的领取秒数。`null` 表示不支持预约。 |
+| `queue_auto_lock` | 是否在资源空闲时自动为队首预约者锁定。开启时，查看资源状态中的 `holding` 确认已自动锁定。 |
 | `renew_allowed` | 是否允许持有人以原锁定模式续锁。实际续锁还要校验该锁状态及有效时长上限。 |
 | `shared_lock_supported` | 机器人是否支持共享锁。具体资源要查看 `operations` 是否含 `slock`。 |
 | `overnight` | 允许申请夜间长锁的时间窗口。结构见下方。 |

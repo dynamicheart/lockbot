@@ -36,6 +36,7 @@ def test_binding_rules_publish_only_thresholds_for_eligible_recovery_targets():
     lock = rules["lock_rules"]
     assert lock["max_lock_duration_seconds"] == lock["max_book_duration_seconds"] == 7200
     assert lock["claim_window_seconds"] == QUEUE_CLAIM_WINDOW_SECONDS
+    assert lock["queue_auto_lock"] is False
     assert lock["max_resources_per_user"] == 3
     low = rules["low_utilization"]
     assert low["thresholds"] == {"accelerator_utilization_percent": [5, 7]}
@@ -65,6 +66,7 @@ def test_rules_use_core_defaults_and_type_operations(client, api):
     assert rules["effective_max_lock_duration_seconds"] == -1
     assert rules["duration_limit_exempt"] is False
     assert rules["resource_unit"] == ("card" if "DEVICE" in kind else "node")
+    assert rules["queue_auto_lock"] is False
     assert rules["queue_claim_window_seconds"] == (QUEUE_CLAIM_WINDOW_SECONDS if "QUEUE" in kind else None)
     assert set(rules["supported_operations"]) == (
         set(api["bot"].supported_commands()) & commands.AGENT_ALLOWED_COMMANDS

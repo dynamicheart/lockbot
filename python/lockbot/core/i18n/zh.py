@@ -189,6 +189,7 @@ MESSAGES = {
     "idle.confirm_unavailable": "⚠️【无法保留资源】\n\n{resource} 当前没有你的待确认提醒。",
     "idle.reclaimed": "🤖【机器人自动回收低利用率资源】\n\n用户：{holder}\n资源：{resource}\n操作：已释放锁定",
     "notify.resource_available_header": "📢【资源可用提醒】\n资源已空闲，请在 {timeout} 内lock:\n\n",
+    "notify.queue_auto_locked_header": "📢【排队资源已自动锁定】\n\n",
     "notify.booking_expired_header": "⚠️ 以下预约已失效，请重新预约：\n",
     "notify.pending_bookings_header": "🗓️ 目前待抢锁的预约：\n",
     "notify.duration_clamped": (

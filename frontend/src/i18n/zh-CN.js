@@ -920,6 +920,8 @@ export default {
       'Agent 锁定的资源利用率偏低时，向群里发送提醒。持有人可直接在群里确认保留。',
     groupRemindApiResources: '续锁、到期和排队群通知',
     groupRemindApiResourcesHelp: '适用于续锁、到期和排队的自动提醒。',
+    queueAutoLock: '排到后自动锁定',
+    queueAutoLockHelp: '资源空闲时，自动为队首预约者锁定。锁定时长从分配时开始计算。',
     durationWhitelist: '锁定时长白名单',
     durationWhitelistHelp: '白名单内的用户不受最大锁定时长限制',
     durationWhitelistPlaceholder: '输入用户名后按 Enter',

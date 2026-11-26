@@ -212,6 +212,7 @@ MESSAGES = {
         "🤖[Low-utilization resource reclaimed]\n\nUser: {holder}\nResource: {resource}\nAction: Released"
     ),
     "notify.resource_available_header": "📢 Resource available\nResource is idle, please lock within {timeout}:\n\n",
+    "notify.queue_auto_locked_header": "📢 Booked resources locked automatically\n\n",
     "notify.booking_expired_header": "⚠️ The following bookings have expired:\n",
     "notify.pending_bookings_header": "🗓️ Pending bookings:\n",
     "notify.duration_clamped": (

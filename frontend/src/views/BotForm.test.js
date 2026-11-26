@@ -114,6 +114,13 @@ it('switches platform without whole-form validation, clears credentials and vali
   expect(view.configPayload().config_overrides.GROUP_REMIND_AGENT_IDLE).toBe(false)
   view.advancedConfig.GROUP_REMIND_AGENT_IDLE = true
   expect(view.configPayload().config_overrides.GROUP_REMIND_AGENT_IDLE).toBe(true)
+  expect(view.configPayload().config_overrides).not.toHaveProperty('QUEUE_AUTO_LOCK')
+  view.form.bot_type = 'QUEUE_DEVICE'
+  expect(view.configPayload().config_overrides.QUEUE_AUTO_LOCK).toBe(false)
+  view.advancedConfig.QUEUE_AUTO_LOCK = true
+  expect(view.configPayload().config_overrides.QUEUE_AUTO_LOCK).toBe(true)
+  view.form.bot_type = 'NODE'
+  expect(view.configPayload().config_overrides).not.toHaveProperty('QUEUE_AUTO_LOCK')
   expect(view.resourceViewLinkDays).toBe('inherit')
   expect(view.configPayload().config_overrides).not.toHaveProperty('RESOURCE_VIEW_LINK_DAYS')
   view.resourceViewLinkDays = 0

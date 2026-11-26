@@ -583,6 +583,20 @@
                 <el-switch v-model="advancedConfig.EARLY_NOTIFY" />
               </el-form-item>
             </el-col>
+            <el-col v-if="['QUEUE', 'QUEUE_DEVICE'].includes(form.bot_type)" :xs="24">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.queueAutoLock') }}
+                  <el-tooltip :content="$t('botCreate.queueAutoLockHelp')" placement="top">
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch
+                  v-model="advancedConfig.QUEUE_AUTO_LOCK"
+                  :aria-label="$t('botCreate.queueAutoLock')"
+                />
+              </el-form-item>
+            </el-col>
             <el-col :xs="24">
               <el-form-item>
                 <template #label>
@@ -806,6 +820,7 @@ const advancedConfig = reactive({
   GROUP_REMIND_API_RESOURCES: false,
   IDLE_UTILIZATION_CHECK_ENABLED: true,
   GROUP_REMIND_AGENT_IDLE: false,
+  QUEUE_AUTO_LOCK: false,
   FEISHU_MEMBERSHIP_NOTICES: false,
   FEISHU_REACTION_REPLIES: false,
   LANGUAGE: 'zh',
@@ -918,6 +933,7 @@ onMounted(async () => {
         advancedConfig.IDLE_UTILIZATION_CHECK_ENABLED =
           overrides.IDLE_UTILIZATION_CHECK_ENABLED !== false
         advancedConfig.GROUP_REMIND_AGENT_IDLE = overrides.GROUP_REMIND_AGENT_IDLE === true
+        advancedConfig.QUEUE_AUTO_LOCK = overrides.QUEUE_AUTO_LOCK === true
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
         if (Array.isArray(overrides.DURATION_WHITELIST))
           advancedConfig.DURATION_WHITELIST = overrides.DURATION_WHITELIST
@@ -974,6 +990,7 @@ function configPayload() {
   if (form.platform.toLowerCase() !== 'feishu') delete overrides.FEISHU_QUERY_PANEL
   if (form.platform.toLowerCase() !== 'feishu') delete overrides.FEISHU_MEMBERSHIP_NOTICES
   if (form.platform.toLowerCase() !== 'feishu') delete overrides.FEISHU_REACTION_REPLIES
+  if (!['QUEUE', 'QUEUE_DEVICE'].includes(form.bot_type)) delete overrides.QUEUE_AUTO_LOCK
   if (overrides.NODE_ALIASES && Object.keys(overrides.NODE_ALIASES).length === 0)
     delete overrides.NODE_ALIASES
   data.config_overrides = overrides

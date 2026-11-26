@@ -138,7 +138,8 @@ def test_overnight_allocation_restart_and_renewal(cls, bot_type, operation, tmp_
     assert users(restored)[0]["duration"] == 11 * 3600
 
 
-def test_queue_claim_rechecks_booked_duration(tmp_path, monkeypatch):
+@pytest.mark.parametrize("auto_lock", [False, True], ids=["manual", "automatic"])
+def test_queue_claim_rechecks_booked_duration(tmp_path, monkeypatch, auto_lock):
     now = instant("2026-12-31", "22:00")
     monkeypatch.setattr("time.time", lambda: now)
     bot = QueueBot(
@@ -156,8 +157,17 @@ def test_queue_claim_rechecks_booked_duration(tmp_path, monkeypatch):
     node = bot.state.bot_state["a"]
     assert node["booking_list"][0]["duration"] == 8 * 3600
     now = instant("2027-01-01", "09:01")
-    bot.lock("alice", "lock a")
-    assert not node["current_users"] and node["booking_list"][0]["user_id"] == "alice"
+    if auto_lock:
+        bot.config.set_val("QUEUE_AUTO_LOCK", True)
+        bot._check_and_notify()
+        (holding,) = node["current_users"]
+        assert holding["start_time"] == now
+        assert holding["user_id"] == "alice"
+        assert holding["duration"] == 14400
+        assert not node["booking_list"]
+    else:
+        bot.lock("alice", "lock a")
+        assert not node["current_users"] and node["booking_list"][0]["user_id"] == "alice"
 
 
 def test_weekend_lock_preserves_queue_order_and_rechecks_the_cutoff(tmp_path, monkeypatch):

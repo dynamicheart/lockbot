@@ -445,6 +445,7 @@ def test_v2_binding_source_capacity_releases_confirmed_slot(client, auth_header,
 
 
 @pytest.mark.parametrize("bot_type", ["QUEUE", "QUEUE_DEVICE"])
+@pytest.mark.parametrize("auto_lock", [False, True], ids=["manual-lock", "auto-lock"])
 def test_v2_watch_reports_timing_while_group_reminders_follow_recipient_source(
     client,
     auth_header,
@@ -452,6 +453,7 @@ def test_v2_watch_reports_timing_while_group_reminders_follow_recipient_source(
     monkeypatch,
     tmp_path,
     bot_type,
+    auto_lock,
 ):
     import asyncio
     import json
@@ -488,6 +490,7 @@ def test_v2_watch_reports_timing_while_group_reminders_follow_recipient_source(
         json={
             "name": "queue-lab",
             "bot_type": bot_type,
+            "config_overrides": {"QUEUE_AUTO_LOCK": auto_lock},
             "cluster_configs": cluster,
             "webhook_url": "https://example.invalid/hook",
         },
@@ -503,6 +506,7 @@ def test_v2_watch_reports_timing_while_group_reminders_follow_recipient_source(
             "CLUSTER_CONFIGS": cluster,
             "EARLY_NOTIFY": True,
             "TIME_ALERT": 30,
+            "QUEUE_AUTO_LOCK": auto_lock,
         },
     )
     with manager.admit(bot_id) as lease:
@@ -514,7 +518,7 @@ def test_v2_watch_reports_timing_while_group_reminders_follow_recipient_source(
         items = message["message"]["body"]
         mentions = [user for item in items if item["type"] == "AT" for user in item["atuserids"]]
         notices.append((bot.adapter.extract_reply_text(message), mentions))
-        if len(notices) == 1:
+        if len(notices) == 1 or auto_lock:
             raise OSError("fixture webhook failure")
 
     monkeypatch.setattr(bot.adapter, "send", send)
@@ -556,6 +560,8 @@ def test_v2_watch_reports_timing_while_group_reminders_follow_recipient_source(
         nonlocal clock
         holder = connect("holder")
         waiter = connect("api-waiter")
+        (grant,) = client.get(API + "/bindings", headers=waiter).raise_for_status().json()["grants"]
+        assert grant["lock_rules"]["queue_auto_lock"] is auto_lock
         filters = {"device": 0} if cards else {}
         (resource,) = client.get(API + "/resources", headers=holder, params=filters).raise_for_status().json()["rows"]
         ref = resource["resource_ref"]
@@ -606,6 +612,26 @@ def test_v2_watch_reports_timing_while_group_reminders_follow_recipient_source(
             assert datetime.fromisoformat(expired["deadline"]).timestamp() == real_time + 120
             waiting = (await event(waits))[2]
             assert "ended" not in waiting
+            if auto_lock:
+                (promoted,) = waiting["rows"]
+                assert promoted["resource_ref"] == ref
+                assert "booking" not in promoted
+                assert promoted["holding"]["mode"] == "exclusive"
+                assert datetime.fromisoformat(promoted["holding"]["expires_at"]).timestamp() == clock + 60
+                # An API booking becomes a holding on SSE without a chat reminder.
+                assert len(notices) == 1
+                clock += 61
+                bot._check_and_notify()
+                expired = (await event(waits))[2]
+                assert expired["removed"] == [ref]
+                assert expired["ended"][0]["kind"] == "holding_expired"
+                # The next group lock has committed even though its notification failed.
+                assert len(notices) == 2 and notices[-1][1] == ["chat-waiter"]
+                slot = bot.published_snapshot().state["node-23"]
+                entry = slot[0] if cards else slot
+                assert entry["status"] == "exclusive"
+                assert [user["user_id"] for user in entry["current_users"]] == ["chat-waiter"]
+                return
             ready = waiting["rows"][0]["booking"]
             assert ready["claimable"] is True
             assert datetime.fromisoformat(ready["claim_expires_at"]).timestamp() == clock + 300

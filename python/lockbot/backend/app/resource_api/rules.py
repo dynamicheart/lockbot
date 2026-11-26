@@ -123,6 +123,7 @@ class BotRules(BaseModel):
     effective_max_lock_duration_seconds: int = Field(
         description="Caller-specific duration ceiling, including exemption; -1 means unlimited."
     )
+    queue_auto_lock: bool = Field(description="Whether an idle resource is automatically locked for the queue head.")
     queue_claim_window_seconds: int | None
     supported_operations: list[str] = Field(
         description="Personal API operations supported by the bot type; access and alias gates still apply."
@@ -145,6 +146,7 @@ def current_bot_rules(bot, user_id: str) -> dict:
     limit = LeaseLimit.for_config(config, now, -1 if exempt else maximum)
     # supported_commands is stateless for every bot class (also used by handler seam tests).
     supported = _BOT_CLASS_MAP[bot.bot_type].supported_commands(None)
+    queue_supported = bot.bot_type in {"QUEUE", "QUEUE_DEVICE"}
     return {
         "forbid_relock": config.get_val("FORBID_RELOCK"),
         "max_resources_per_user": config.get_val("MAX_RESOURCES_PER_USER"),
@@ -161,7 +163,8 @@ def current_bot_rules(bot, user_id: str) -> dict:
         "max_lock_duration_seconds": maximum,
         "duration_limit_exempt": exempt,
         "effective_max_lock_duration_seconds": limit.remaining_limit,
-        "queue_claim_window_seconds": QUEUE_CLAIM_WINDOW_SECONDS if bot.bot_type in {"QUEUE", "QUEUE_DEVICE"} else None,
+        "queue_auto_lock": queue_supported and config.get_val("QUEUE_AUTO_LOCK"),
+        "queue_claim_window_seconds": QUEUE_CLAIM_WINDOW_SECONDS if queue_supported else None,
         "supported_operations": sorted(set(supported) & commands.AGENT_ALLOWED_COMMANDS),
         "allow_user_alias": bool(config.get_val("ALLOW_USER_ALIAS")),
         "request_budget": {
@@ -195,6 +198,7 @@ class BindingLockRules(BaseModel):
     max_resources_per_user: int = Field(
         description="Combined held and queued resource cap per user, counting distinct units. -1 means unlimited."
     )
+    queue_auto_lock: bool = Field(description="Whether an idle resource is automatically locked for the queue head.")
     claim_window_seconds: int | None = Field(
         description="Seconds to claim a notified, ready booking. Null when the bot does not support booking."
     )
@@ -228,6 +232,7 @@ def binding_rules(bot, user_id: str, observer) -> dict:
                     "effective_max_lock_duration_seconds",
                     "duration_limit_exempt",
                     "max_resources_per_user",
+                    "queue_auto_lock",
                     "overnight",
                 )
             },

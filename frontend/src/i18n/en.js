@@ -956,6 +956,8 @@ export default {
       'Sends a group reminder for low-utilization Agent locks. The holder can confirm in the group.',
     groupRemindApiResources: 'Renewal, expiry and queue reminders in chat',
     groupRemindApiResourcesHelp: 'Applies to automatic renewal, expiry, and queue reminders.',
+    queueAutoLock: 'Auto-lock when your turn arrives',
+    queueAutoLockHelp: 'Assign an available resource to the first booking and start its lock duration.',
     durationWhitelist: 'Lock Duration Whitelist',
     durationWhitelistHelp: 'Users exempt from MAX_LOCK_DURATION.',
     durationWhitelistPlaceholder: 'Type a username and press Enter',

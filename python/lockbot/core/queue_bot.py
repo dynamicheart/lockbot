@@ -385,18 +385,20 @@ class QueueBot(NodeBot):
 
     def _check_and_notify(self) -> float | None:
         """
-        Check resource expiration and booking timeouts, release expired resources,
-        and send notifications. Persist state only when changes occur.
+        Process resource expiration and advance or notify the first booking.
+        Persist state only when changes occur.
 
         Returns: seconds until next interesting event, or None if no active locks/bookings.
         """
         queue_advanced = False
         state_changed = False
         alerts = []
+        auto_locked = []
         ended = []
         user_ids = set()
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
+        auto_lock = self.config.get_val("QUEUE_AUTO_LOCK")
 
         TIME_TO_LOCK = 5 * 60
 
@@ -462,31 +464,50 @@ class QueueBot(NodeBot):
 
                     if len(node["current_users"]) == 0:
                         node["status"] = "idle"
-                # === 2. If node is idle, check if any booked user needs notification ===
+                # === 2. If the resource is idle, advance its queue ===
                 if node["status"] == "idle" and node["booking_list"]:
                     first_book_user = node["booking_list"][0]
                     now = int(time.time())
 
-                    # Not notified yet, notify directly
-                    if not first_book_user.get("is_notified", False):
-                        notify_first_booking_user(node_key, node, now)
-                    else:
-                        # Already notified but timed out without response -> remove and notify next
-                        if now - first_book_user["start_time"] >= TIME_TO_LOCK:
-                            remove_user_info(node["booking_list"], first_book_user["user_id"])
-                            ended.append(
-                                (
-                                    node_key,
-                                    first_book_user["user_id"],
-                                    "booking_timed_out",
-                                    first_book_user["start_time"] + TIME_TO_LOCK,
-                                )
+                    timed_out = (
+                        first_book_user.get("is_notified") and now - first_book_user["start_time"] >= TIME_TO_LOCK
+                    )
+                    if timed_out:
+                        node["booking_list"].pop(0)
+                        ended.append(
+                            (
+                                node_key,
+                                first_book_user["user_id"],
+                                "booking_timed_out",
+                                first_book_user["start_time"] + TIME_TO_LOCK,
                             )
-                            if self._include_group_reminder(first_book_user):
-                                expired_users.append((first_book_user["user_id"], node_key))
-                                user_ids.add(first_book_user["user_id"])
-                            state_changed = True
-                            notify_first_booking_user(node_key, node, now)
+                        )
+                        if self._include_group_reminder(first_book_user):
+                            expired_users.append((first_book_user["user_id"], node_key))
+                            user_ids.add(first_book_user["user_id"])
+                        state_changed = True
+                    if not node["booking_list"]:
+                        continue
+                    first_book_user = node["booking_list"][0]
+                    if auto_lock:
+                        user_id = first_book_user["user_id"]
+                        duration = first_book_user["duration"]
+                        limit = self._lease_limit_locked(user_id, now)
+                        maximum = limit.remaining_limit
+                        if maximum > 0:
+                            duration = min(duration, maximum)
+                        holding = create_user_info(user_id, duration, now, config=self.config)
+                        limit.record(holding)
+                        holding["source"] = first_book_user.get("source", "unknown")
+                        node["booking_list"].pop(0)
+                        node["current_users"] = [holding]
+                        node["status"] = "exclusive"
+                        state_changed = True
+                        if holding["source"] == "chat":
+                            auto_locked.append((node_key, user_id, duration))
+                            user_ids.add(user_id)
+                    elif timed_out or not first_book_user.get("is_notified"):
+                        notify_first_booking_user(node_key, node, now)
 
             pending = self._pending_booking_rows(pending_keys)
             if state_changed:
@@ -509,7 +530,7 @@ class QueueBot(NodeBot):
                         min_next = min(min_next, next_event)
                 # Booking list: first notified user may time out after TIME_TO_LOCK
                 booking_list = node.get("booking_list", [])
-                if booking_list:
+                if booking_list and (not auto_lock or node["status"] == "idle"):
                     first = booking_list[0]
                     if first.get("is_notified") and first.get("start_time"):
                         until_timeout = TIME_TO_LOCK - (now_ts - first["start_time"])
@@ -518,8 +539,15 @@ class QueueBot(NodeBot):
                         min_next = min(min_next, 1.0)  # unnotified booking → check soon
 
         content = self._render_lease_alerts(alerts) if alerts else ""
+        if auto_locked:
+            content += t("notify.queue_auto_locked_header", config=self.config)
+            for node_key, user_id, duration in auto_locked:
+                content += f"{self._display_node(node_key)}  {user_id}  {format_duration(duration, self.config)}\n"
+            content += "\n"
         if queue_advanced and (expired_users or pending):
             content += self._render_booking_reminder(expired_users, pending, TIME_TO_LOCK)
+        elif auto_lock and expired_users:
+            content += self._render_booking_expirations(expired_users)
         if content:
             msg = self.adapter.build_reply(content, list(user_ids))
             try:
@@ -544,6 +572,12 @@ class QueueBot(NodeBot):
             rows.append((key, user["user_id"], user["duration"]))
         return rows
 
+    def _render_booking_expirations(self, expired_users):
+        text = t("notify.booking_expired_header", config=self.config)
+        for user_id, node_key in expired_users:
+            text += t("notify.booking_timeout_cancelled", config=self.config, user_id=user_id, node_key=node_key)
+        return text + "\n"
+
     def _render_booking_reminder(self, expired_users, pending, claim_seconds):
         text = t(
             "notify.resource_available_header",
@@ -551,10 +585,7 @@ class QueueBot(NodeBot):
             timeout=format_duration(claim_seconds, config=self.config),
         )
         if expired_users:
-            text += t("notify.booking_expired_header", config=self.config)
-            for user_id, node_key in expired_users:
-                text += t("notify.booking_timeout_cancelled", config=self.config, user_id=user_id, node_key=node_key)
-            text += "\n"
+            text += self._render_booking_expirations(expired_users)
         if pending:
             text += t("notify.pending_bookings_header", config=self.config)
             for key, user_id, seconds in pending:
