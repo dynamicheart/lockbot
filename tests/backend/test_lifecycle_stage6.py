@@ -101,11 +101,10 @@ def test_provisioning_operations_use_only_configuration_credentials(client):
                 assert path not in schema["paths"]
 
 
-def test_public_schema_uses_detailed_notes_wording_without_removing_personal_fields(client):
+def test_public_schema_advertises_preset_category_only(client):
     for url in ("/api/public-openapi.json", "/openapi.json"):
         doc = client.get(url).json()
         encoded = json.dumps(doc).lower()
         assert "private task" not in encoded and "private note" not in encoded
         request = doc["components"]["schemas"]["CommandRequest"]["properties"]
-        assert "purpose" in request and "agent_label" in request
-        assert "Detailed Agent task note" in request["purpose"]["description"]
+        assert set(request) == {"command", "task_category"}

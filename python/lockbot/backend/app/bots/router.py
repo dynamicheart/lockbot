@@ -34,6 +34,7 @@ from lockbot.backend.app.bots.migration_preflight import MigrationPreflight, Mig
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import (
     mapping_version,
+    merge_login_metadata,
     node_ids,
     read_access_mapping,
     saved_node_access,
@@ -307,6 +308,7 @@ def _agent_skill_url(bot_id, expected_uuid):
     from urllib.parse import urlsplit
 
     from lockbot.backend.app.database import SessionLocal
+    from lockbot.backend.app.resource_api.v2.skill import SKILL_URL
     from lockbot.backend.app.settings.router import get_all_settings
 
     with SessionLocal() as session:
@@ -317,13 +319,7 @@ def _agent_skill_url(bot_id, expected_uuid):
         parsed = urlsplit(base)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             return ""
-        return base.split("#", 1)[0].rstrip("/") + "/api/agent-skill"
-
-
-def _personal_panel_url(bot_id, expected_uuid):
-    from lockbot.backend.app.personal_panel.setup import panel_home
-
-    return panel_home() if _agent_skill_url(bot_id, expected_uuid) else ""
+        return base.split("#", 1)[0].rstrip("/") + SKILL_URL
 
 
 def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
@@ -357,9 +353,6 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         g.strip() for g in (getattr(bot, "group_id", None) or "").split(",") if g.strip()
     ]
     config["_AGENT_SKILL_URL"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): _agent_skill_url(bot_id, uuid)
-    config["_PERSONAL_PANEL_URL"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): _personal_panel_url(
-        bot_id, uuid
-    )
     from lockbot.backend.app.resource_api.view_links import group_view_link
 
     config["_BOT_VIEW_LINK"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): group_view_link(bot_id, uuid)
@@ -404,7 +397,11 @@ def list_bots(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return db.query(Bot).filter(Bot.user_id == user.id, Bot.is_deleted.is_(False)).all()
+    from lockbot.backend.app.feishu.labels import bot_display_names
+
+    bots = db.query(Bot).filter(Bot.user_id == user.id, Bot.is_deleted.is_(False)).all()
+    names = bot_display_names(db, bots)
+    return [BotOut.model_validate(bot).model_copy(update=names.get(bot.id, {})) for bot in bots]
 
 
 @router.post("", response_model=BotOut, status_code=status.HTTP_201_CREATED)
@@ -611,7 +608,9 @@ def get_bot(
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Authorization"
     migration_in_progress = user.role == "super_admin" and migration_fence(db, bot_id) is not None
-    return {**_mask_bot(bot, db), **view, "migration_in_progress": migration_in_progress}
+    observer = getattr(request.app.state, "idle_observer", None)
+    sampling = observer.sampling_status(bot.id, bot.uuid) if observer else None
+    return {**_mask_bot(bot, db), **view, "migration_in_progress": migration_in_progress, "idle_sampling": sampling}
 
 
 @router.post("/{bot_id}/view-link/regenerate")
@@ -738,15 +737,19 @@ def update_bot(
                 cc_for_storage = _device_array_to_dict(cc_for_storage)
             new_json = json.dumps(cc_for_storage, ensure_ascii=False)
             if new_json != (bot.cluster_configs or ""):
+                new_nodes = set(node_ids(cc_for_storage))
                 if bot.node_access_config:
-                    new_nodes = set(node_ids(cc_for_storage))
                     bot.node_access_config = serialize_node_access(
                         {node: access for node, access in saved_node_access(bot).items() if node in new_nodes}
                     )
                 if bot.node_hardware_config:
-                    new_nodes = set(node_ids(cc_for_storage))
                     bot.node_hardware_config = serialize_node_hardware(
                         {node: rows for node, rows in saved_node_hardware(bot).items() if node in new_nodes}
+                    )
+                if bot.node_inventory_config:
+                    bot.node_inventory_config = json.dumps(
+                        {node: row for node, row in json.loads(bot.node_inventory_config).items() if node in new_nodes},
+                        separators=(",", ":"),
                     )
                 old_configs = json.loads(bot.cluster_configs) if bot.cluster_configs else None
                 if isinstance(cc_for_storage, dict):
@@ -1607,7 +1610,6 @@ def update_bot_state(
                 command_initiator,
                 command_source,
             )
-            from lockbot.core.io import _save_bot_state_atomically, observe_state_persistence
 
             lease.bot.state.bot_state = state
             source_token = command_source.set("admin")
@@ -1615,12 +1617,7 @@ def update_bot_state(
             actor_token = command_initiator.set({"kind": "management_user", "user_id": user.id})
             correlation_token = command_correlation.set(uuid.uuid4().hex)
             try:
-                try:
-                    _save_bot_state_atomically(state, lease.bot.config)
-                except BaseException:
-                    observe_state_persistence(lease.bot.config, state, successful=False)
-                    raise
-                observe_state_persistence(lease.bot.config, state, successful=True)
+                lease.bot._persist_state()
             finally:
                 command_source.reset(source_token)
                 command_action.reset(action_token)
@@ -1997,6 +1994,7 @@ def _node_access_preview(document: dict, nodes: dict) -> dict:
     if invalid:
         raise HTTPException(422, f"Unknown node IDs: {', '.join(repr(node) for node in invalid[:10])}")
     current = document["nodes"]
+    nodes = merge_login_metadata(current, nodes)
     return {
         "version": mapping_version(nodes),
         "nodes": nodes,
@@ -2122,7 +2120,7 @@ def save_node_access(
         document = _node_access_document(bot)
         preview = _node_access_preview(document, nodes)
         if preview["added"] or preview["changed"]:
-            document["nodes"].update(nodes)
+            document["nodes"].update(preview["nodes"])
             document["version"] = mapping_version(document["nodes"])
             bot.node_access_config = serialize_node_access(document["nodes"])
             write_audit_log(

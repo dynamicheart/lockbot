@@ -6,7 +6,8 @@ from starlette.datastructures import Headers
 
 from lockbot.backend.app.resource_api.discovery import API_VERSION, SERVICE_ID
 from lockbot.backend.app.resource_api.ingress import _PATH
-from lockbot.backend.app.resource_api.skill import package_update_status, skill_artifacts
+from lockbot.backend.app.resource_api.skill import package_update_status
+from lockbot.backend.app.resource_api.v2.skill import skill_metadata
 
 
 class AgentVersionMiddleware:
@@ -15,13 +16,14 @@ class AgentVersionMiddleware:
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
-        applies = scope["type"] == "http" and (_PATH.fullmatch(path) or path.startswith("/api/agent-skill"))
+        applies = scope["type"] == "http" and _PATH.fullmatch(path)
         if not applies:
             return await self.app(scope, receive, send)
 
         async def send_metadata(message):
             if message["type"] == "http.response.start":
-                manifest = skill_artifacts()[2]
+                manifest = skill_metadata()
+                revision_api = "2" if path.startswith("/api/agent/v2/") else API_VERSION
                 reported = Headers(scope=scope)
                 revision = reported.get("x-lockbot-client-skill-version", "")
                 api_version = reported.get("x-lockbot-client-api-version", "")
@@ -36,14 +38,14 @@ class AgentVersionMiddleware:
                     "unknown"
                     if not re.fullmatch(r"[0-9]{1,3}", api_version)
                     else "current"
-                    if api_version == API_VERSION
+                    if api_version == revision_api
                     else "incompatible"
                 )
                 headers = list(message.get("headers", []))
                 headers.extend(
                     [
                         (b"x-lockbot-service-id", SERVICE_ID.encode()),
-                        (b"x-lockbot-api-version", API_VERSION.encode()),
+                        (b"x-lockbot-api-version", revision_api.encode()),
                         (b"x-lockbot-server-version", scope["app"].version.encode()),
                         (b"x-lockbot-skill-version", manifest["version"].encode()),
                         (b"x-lockbot-skill-update", skill_status.encode()),

@@ -8,7 +8,9 @@ def resource_entries(state):
         key: entry
         for node, value in state.items()
         for key, entry in (
-            [(f"{node}:dev{card['dev_id']}", card) for card in value] if isinstance(value, list) else [(node, value)]
+            [(f"{node}:dev{card['dev_id']}", card) for card in value]
+            if isinstance(value, (list, tuple))
+            else [(node, value)]
         )
     }
 

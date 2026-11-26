@@ -6,8 +6,7 @@ Scope decisions, all fixed by the plan and the user:
   same class of action as ``kickout`` and ``kicklock``. Queue support survives without it:
   ``QueueBot.lock`` accepts an idle node when the caller is first in the booking list, so
   ``book`` then ``lock`` is a complete non-preemptive path.
-- ``alias`` edits a shared node label when enabled. Personal task details belong in
-  usage declarations, not in that public label.
+- ``alias`` edits a shared node label when enabled.
 - ``bind`` / ``unbind`` / ``bindings`` are refused unconditionally. Enrollment and
   revocation are chat-only, because chat is the only place a trustworthy identity exists.
 """
@@ -16,10 +15,11 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session, sessionmaker
 
 from lockbot.backend.app.bots.manager import (
@@ -116,7 +116,7 @@ The examples below use placeholder resources; replace them with those returned b
 - `alias node1 <note>` changes the shared resource alias only when enabled (at most 15
   characters); `alias node1` clears it. Read the node's `resources[].alias` afterward.
   For DEVICE/QUEUE_DEVICE, this is the parent node's label, not a per-card note.
-  It is not an Agent task note; use usage declarations for task purposes. Readback
+  Readback
   observes current configuration separately from cached lock state; it does not prove
   persistence or that your command caused the value. HTTP 200 alone is not success.
 - `take`, `kickout`, `kicklock` and chat binding commands are **not available to personal
@@ -125,34 +125,9 @@ The examples below use placeholder resources; replace them with those returned b
   to verify ownership or queue position. Repeating `lock` extends the lease; do not retry
   it blindly after a timeout. Prefer structured GET `/resources` over parsing query replies.
 
-### Example: two Agents sharing one user's key
+### Task category
 
-Both use the same `bot_id` and saved key. Each acquires a different resource:
-
-```json
-{"command":"lock node1 2h","agent_label":"dev-agent","purpose":"Develop feature X"}
-```
-
-```json
-{"command":"lock node2 1h","agent_label":"test-agent","purpose":"Run regression tests"}
-```
-
-Successful `lock` / `slock` / `book` with either optional field automatically registers
-that resource's Agent name and purpose in the same API call. No second request is needed.
-A failed acquisition does not change the current task. Other commands (including `free`)
-never publish these private fields in group notifications. To change a task later without changing
-the lease, optionally call `PUT /api/agent/usage-declarations/node1`:
-
-```json
-{"purpose":"Develop feature X","agent_label":"dev-agent","ttl_seconds":3600}
-```
-
-Other users receive only preset public task categories. Detailed Agent task notes and Agent names are scoped
-to the same verified actor and super administrators.
-Registrations are scoped to user authorization + resource, not individual Agent processes.
-On DEVICE, the current registration covers the node resource; different cards on the same
-node do **not** have independent task registrations. QUEUE_DEVICE saves tasks independently
-per card; use `devices[].resource_id` for manual usage updates (e.g. `node1:dev0`).
+A successful `lock`, `slock` or `book` can record an optional preset `task_category`.
 
 ### Actual HTTP call
 
@@ -166,7 +141,7 @@ session = requests.Session()
 session.headers["Authorization"] = "Bearer " + key
 response = session.post(
     f"{base_url}/api/agent/commands",
-    json={"command": "lock node1 2h", "agent_label": "dev-agent", "purpose": "Develop feature X"},
+    json={"command": "lock node1 2h"},
     timeout=15,
 )
 response.raise_for_status()
@@ -180,7 +155,7 @@ state.raise_for_status()
 COMMAND_EXAMPLES = {
     "node_lock": {
         "summary": "NODE / QUEUE: exclusive lock",
-        "value": {"command": "lock node1 2h", "agent_label": "dev-agent", "purpose": "Develop feature X"},
+        "value": {"command": "lock node1 2h"},
     },
     "device_lock": {"summary": "DEVICE: lock one card (index 0)", "value": {"command": "lock node1 dev0 2h"}},
     "device_range": {"summary": "DEVICE: lock inclusive card range", "value": {"command": "lock node1 dev0-3 1h"}},
@@ -197,7 +172,7 @@ COMMAND_EXAMPLES = {
     "device_release": {"summary": "DEVICE: release only card 0", "value": {"command": "free node1 dev0"}},
     "queue_device_book": {
         "summary": "QUEUE_DEVICE: queue for one card, then claim explicitly",
-        "value": {"command": "book node1 dev0 30m", "agent_label": "test-agent", "purpose": "Regression"},
+        "value": {"command": "book node1 dev0 30m"},
     },
     "query": {"summary": "Text query; GET /resources is structured", "value": {"command": "query"}},
 }
@@ -213,25 +188,13 @@ class CommandRequest(TaskCategoryInput):
         max_length=512,
         description="Resource command text. See the operation command reference and named request examples.",
     )
-    agent_label: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=64,
-        pattern=r"^[^\r\n\x00-\x1f\x7f]+$",
-        description="Optional self-declared Agent name for display, never an identity or quota boundary.",
-    )
 
-    purpose: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=512,
-        pattern=r"^[^\r\n\x00-\x1f\x7f]+$",
-        description=(
-            "Detailed Agent task note, visible only to the same verified actor and super administrators. "
-            "Successful lock/slock/book also registers resource usage; "
-            "other commands do not publish it in group notifications."
-        ),
-    )
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_metadata(cls, data):
+        if isinstance(data, Mapping):
+            return {key: value for key, value in data.items() if key not in {"agent_label", "purpose"}}
+        return data
 
 
 class CommandActor(BaseModel):
@@ -287,8 +250,6 @@ def execute_command_via_api(
         bot=bot_row,
         operation="command",
         command=text,
-        agent_label=body.agent_label,
-        purpose=body.purpose,
         task_category=body.task_category,
     )
     request.state.resource_activity_kind = "read" if canonical_command(word) == "query" else "write"
@@ -387,8 +348,6 @@ def execute_command_via_api(
                     bot,
                     actor,
                     before_usage,
-                    agent_label=body.agent_label,
-                    purpose=body.purpose,
                     task_category=body.task_category,
                     task_category_provided="task_category" in body.model_fields_set,
                 )
@@ -414,8 +373,6 @@ def execute_command_via_api(
                     command=text,
                     actor_id=actor.external_user_id,
                     command_word=word,
-                    agent_label=body.agent_label,
-                    purpose=body.purpose,
                     task_category=body.task_category,
                     target=notification_target(bot_row, lease, bot_manager, sessionmaker(bind=db.get_bind())),
                 )

@@ -99,6 +99,21 @@ it('switches platform without whole-form validation, clears credentials and vali
   expect(view.configPayload().config_overrides.GROUP_REMIND_API_RESOURCES).toBe(false)
   view.advancedConfig.GROUP_REMIND_API_RESOURCES = true
   expect(view.configPayload().config_overrides.GROUP_REMIND_API_RESOURCES).toBe(true)
+  expect(view.configPayload().config_overrides.IDLE_UTILIZATION_CHECK_ENABLED).toBe(true)
+  expect(view.configPayload().config_overrides.OVERNIGHT_ENABLED).toBe(false)
+  expect(view.configPayload().config_overrides.OVERNIGHT_PAUSE_IDLE_CHECK).toBe(false)
+  view.advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK = true
+  expect(view.configPayload().config_overrides.OVERNIGHT_ENABLED).toBe(false)
+  expect(view.configPayload().config_overrides.OVERNIGHT_PAUSE_IDLE_CHECK).toBe(true)
+  view.advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK = false
+  view.advancedConfig.OVERNIGHT_ENABLED = true
+  expect(view.configPayload().config_overrides.OVERNIGHT_PAUSE_IDLE_CHECK).toBe(false)
+  expect(view.configPayload().config_overrides.OVERNIGHT_START).toBe('22:00')
+  view.advancedConfig.IDLE_UTILIZATION_CHECK_ENABLED = false
+  expect(view.configPayload().config_overrides.IDLE_UTILIZATION_CHECK_ENABLED).toBe(false)
+  expect(view.configPayload().config_overrides.GROUP_REMIND_AGENT_IDLE).toBe(false)
+  view.advancedConfig.GROUP_REMIND_AGENT_IDLE = true
+  expect(view.configPayload().config_overrides.GROUP_REMIND_AGENT_IDLE).toBe(true)
   expect(view.configPayload().config_overrides).not.toHaveProperty('QUEUE_AUTO_LOCK')
   view.form.bot_type = 'QUEUE_DEVICE'
   expect(view.configPayload().config_overrides.QUEUE_AUTO_LOCK).toBe(false)

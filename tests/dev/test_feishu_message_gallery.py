@@ -1,6 +1,7 @@
 """A rendering diagnostic must preserve links/mentions without interpreting plain text."""
 
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -129,7 +130,7 @@ def test_resume_keeps_target_scope_and_skips_accepted_cases(cli, monkeypatch):
 def test_gallery_public_operation_example_omits_private_fields_and_real_service_addresses():
     cases = gallery.gallery()
     content = str(cases)
-    assert "10.162.36.62" not in content
+    assert not re.search(r"https?://(?:\d{1,3}\.){3}\d{1,3}\b", content)
     operation = next(case for case in cases if case["name"] == "agent-operation")
     assert "任务分类：模型性能测试" in str(operation)
     assert "Agent：" not in str(operation) and "备注：" not in str(operation)

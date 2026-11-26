@@ -12,12 +12,11 @@ afterEach(() => {
   app = null
 })
 async function taskText(row) {
-  app = createSSRApp(AgentHistory, { botId: 1, includePrivate: true })
+  app = createSSRApp(AgentHistory, { botId: 1 })
   app.config.warnHandler = () => {}
   app.config.globalProperties.$t = (key) =>
     ({
       'agentHistory.agentLabel': 'Agent：',
-      'agentHistory.noteLabel': '备注：',
     })[key] || key
   app.directive('loading', {})
   app.component(
@@ -44,7 +43,7 @@ async function taskText(row) {
   expect(cell).toBeDefined()
   return cell.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]+>/g, '')
 }
-it('renders the category and distinct labeled Agent and note lines without an empty marker', async () => {
+it('renders the public category and Agent label', async () => {
   const text = await taskText({
     public_task: '算子测试',
     agent_label: 'fixture-agent',
@@ -52,11 +51,11 @@ it('renders the category and distinct labeled Agent and note lines without an em
   })
   expect(text).toContain('算子测试')
   expect(text).toContain('Agent： fixture-agent')
-  expect(text).toContain('备注： 验证功能')
+  expect(text).not.toContain('验证功能')
   expect(text).not.toContain('—')
 })
-it('renders only actual details when a category is missing', async () => {
-  expect(await taskText({ purpose: '验证功能' })).toBe('备注： 验证功能')
+it('shows the empty marker when only a private note exists', async () => {
+  expect(await taskText({ purpose: '验证功能' })).toBe('—')
 })
 it('renders one empty marker when the row contains no task fields', async () => {
   expect(await taskText({})).toBe('—')

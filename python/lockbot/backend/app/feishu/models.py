@@ -31,6 +31,21 @@ class FeishuGroupRoute(Base):
     __table_args__ = (UniqueConstraint("application_id", "chat_id", name="uq_feishu_application_chat"),)
 
 
+class FeishuDisplayLabel(Base):
+    """Last successfully verified display names, scoped to an application identity."""
+
+    __tablename__ = "feishu_display_labels"
+
+    application_id: Mapped[int] = mapped_column(ForeignKey("feishu_applications.id"), primary_key=True)
+    app_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    bot_open_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(8), primary_key=True)
+    external_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256))
+    verified_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class FeishuReceivedMessage(Base):
     """Minimal durable claim; never persist raw chat text or binding proof codes."""
 

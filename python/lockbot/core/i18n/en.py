@@ -1,11 +1,6 @@
 """English (en) message translations for lockbot."""
 
 MESSAGES = {
-    "help.personal_panel": "My resources · allocations and reservations ",
-    "help.personal_panel_hint": (
-        "First visit or a new device: ask your IM-bound Agent to open your resource panel, from a local CLI or server. "
-        "Confirm sign-in, then bookmark this address."
-    ),
     "notify.api_overflow": (
         "{count} additional operation notices exceeded the queue limit; "
         "ask an administrator to inspect operation history."
@@ -21,7 +16,7 @@ MESSAGES = {
     "notify.api_purpose": "\nNote: {purpose}",
     "notify.api_agent_label": "\nAgent: {label}",
     "help.agent_skill": "Agent usage: ",
-    "help.agent_lock_hint": "LockBot Skill installation manifest: {url}",
+    "help.agent_lock_hint": "LockBot Skill download: {url}",
     "public_docs.agent_api_intro": "Use a personal Agent Key bound in a group to operate your resources in that group.",
     "public_docs.resource_queries": "To query resources, start with `GET /api/agent/context`, "
     "then open `GET /api/agent/resources` for the query example.",
@@ -36,6 +31,17 @@ MESSAGES = {
     "public_docs.schema": "Combined OpenAPI schema",
     "public_docs.agent.title": "Agent API",
     "public_docs.agent.description": "Bind an Agent, then use its personal Key to query and manage your resources.",
+    "public_docs.deprecated_agent.title": "Legacy Agent API (deprecated)",
+    "public_docs.deprecated_agent.description": (
+        "For compatibility and migration of existing clients. Use Agent API for new integrations; "
+        "each legacy operation lists its replacement."
+    ),
+    "public_docs.deprecated_agent.credential": (
+        "A personal Agent Key bound to that bot; the legacy path does not broaden its scope."
+    ),
+    "public_docs.deprecated_agent.replacement": (
+        "This operation is deprecated. Use `{operation}` instead; the personal Key determines the bot scope."
+    ),
     "public_docs.op.title": "Operator API",
     "public_docs.op.description": "Use a bot's OP Key to query resource occupancy and perform administrative releases.",
     "public_docs.configuration.title": "Configuration API",
@@ -72,6 +78,7 @@ MESSAGES = {
     "label.queue_list": "⌛️ Queue:\n",
     "label.queue_item": "  {index}. {user_id} {duration} est. wait {wait_time}\n",
     # ── Error messages ──
+    "feishu.query_busy": "Query is busy. Please query again shortly.",
     "feishu.command_format": (
         "❌ Not executed: mention the bot and send one plain command or one single-line code block, "
         "without a title, quote or multiple commands."
@@ -81,6 +88,7 @@ MESSAGES = {
     "error.duration_must_be_positive": "Duration must be greater than 0\n",
     "error.node_in_use_or_shared": "Node is in use by others or in shared mode\n\n",
     "error.node_exclusive_mode": "Node is in exclusive mode\n\n",
+    "error.overnight_cutoff": "\nOvernight cutoff: {cutoff}.",
     "error.lock_max_duration_exceeded": "Note: consecutive lock cannot exceed {max_duration}\n\n{whitelist_hint}",
     "error.slock_max_duration_exceeded": "Note: consecutive slock cannot exceed {max_duration}\n\n{whitelist_hint}",
     "error.whitelist_hint": "To lock longer, contact @{owner} to be added to the whitelist\n\n",
@@ -190,6 +198,19 @@ MESSAGES = {
     "notify.take_preempt": "⚠️ {user_id} preempted node {node_key}\n",
     "notify.take_notify_all": "📋 Node {node_key} taken by {user_id}, current usage:\n",
     "notify.wait_time_increased": "Note: wait times have been updated\n\n",
+    "idle.warning": (
+        "❗[Low resource utilization]\n\n"
+        "Utilization for {resource} has been below {threshold}% for 20 minutes (currently {utilization}%).\n"
+        "Resume use within 10 minutes. For 10 extra minutes, mention the bot and send `{command}` in this group.\n\n"
+        "Reason: {reason}."
+    ),
+    "idle.reason.resource_has_waiting_user": "Someone is waiting for this resource",
+    "idle.reason.bot_has_no_available_resources": "This bot has no idle resources",
+    "idle.confirmed": "✅[Confirmed]\n\nUtilization for {resource} will be checked again at {time}.",
+    "idle.confirm_unavailable": "⚠️[Unable to keep resource]\n\nYou have no pending reminder for {resource}.",
+    "idle.reclaimed": (
+        "🤖[Low-utilization resource reclaimed]\n\nUser: {holder}\nResource: {resource}\nAction: Released"
+    ),
     "notify.resource_available_header": "📢 Resource available\nResource is idle, please lock within {timeout}:\n\n",
     "notify.queue_auto_locked_header": "📢 Booked resources locked automatically\n\n",
     "notify.booking_expired_header": "⚠️ The following bookings have expired:\n",
@@ -229,21 +250,22 @@ MESSAGES = {
     "opkick.notify_kicked": "⚠️ [Operator Release]\n\nNode: {node_key}\n",
     "opkick.notify_kicked_reason": "Reason: {reason}\n\n",
     # ── Alias command ──
-    "alias.help_section": "{num}. Alias: alias {node} <label>\n   Clear: alias {node}\n",
-    "alias.usage": "Usage: alias <node_key> [label]\nExample: alias node0 10.10.10.56\nClear: alias node0",
+    "alias.help_section": "{num}. Node label: label {node} <label>\n   Clear: label {node}\n",
+    "alias.usage": "Usage: label <node_key> [label]\nExample: label node0 training\nClear: label node0",
     "alias.invalid_node": "Node {node_key} does not exist. Available: {valid_keys}\n",
-    "alias.invalid_alias": "Alias cannot contain line breaks; please enter a single-line label",
-    "alias.too_long": "Alias cannot exceed 15 characters",
-    "alias.set_ok": "✅ Set {node_key} alias to「{alias}」\n\n",
-    "alias.clear_ok": "✅ Cleared alias for {node_key}\n\n",
-    "alias.disabled": "User alias command is not enabled for this bot",
+    "alias.invalid_alias": "Labels cannot contain line breaks",
+    "alias.too_long": "Label cannot exceed 15 characters",
+    "alias.set_ok": "✅ Set {node_key} label to「{alias}」\n\n",
+    "alias.clear_ok": "✅ Cleared label for {node_key}\n\n",
+    "alias.disabled": "User labels are disabled for this bot",
     # ── Identity binding (agent API enrollment) ──
     "binding.agent_usage_hint": (
-        "LockBot Skill installation manifest: {url}\nOn first use, ask your Agent to verify and install the bundle."
+        "LockBot Skill download: {url}\nOn first use, ask your Agent to verify and install the bundle."
     ),
     "binding.unavailable": ("❌[Agent authorization unavailable]\n\nAgent authorization is unavailable on this bot."),
     "binding.failed": ("❌[Agent authorization failed]\n\nCould not process this command. Please try again later."),
     "binding.enrollment_disabled": ("❌[Agent access disabled]\n\nAsk the bot owner to enable Agent access."),
+    "binding.legacy_enrollment_disabled": "This server requires Agent API v2 for new bindings. Use lb login to bind.",
     "binding.usage_bind": (
         "📖[Authorize an Agent]\n\nSend: bind <code>\nGet the code from the Ag"
         "ent requesting access. Check its intended use first."
@@ -258,6 +280,12 @@ MESSAGES = {
     ),
     "binding.challenge_unavailable": "No current Key is available. Return to your Agent.",
     "binding.challenge_created": "A personal Key was created. Return to the Agent that requested the code.",
+    "binding.personal_confirmed": "LockBot access confirmed. Return to the client that requested the code.",
+    "binding.personal_recovered": "LockBot Key recovery confirmed. Return to the client that requested the code.",
+    "binding.personal_rotated": "LockBot Key reset confirmed. The previous Keys for this identity were revoked.",
+    "binding.personal_unavailable": (
+        "This code cannot be confirmed for this account. To recover your Key, request recovery in your client."
+    ),
     "binding.challenge_recover_confirmed": "Key recovery confirmed. Return to the Agent that requested the code.",
     "binding.challenge_reset_confirmed": "Key reset confirmed. The old Key is invalid. Return to your Agent.",
     "binding.already_bound": (

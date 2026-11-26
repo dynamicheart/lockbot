@@ -169,7 +169,7 @@ def _read(bot_id, response, db, user, *, refresh, log_page):
     # label into a false limited state that the UI would never poll again.
     pending = batches.pending(client)
     states = client.user_name_states(identities)
-    names = {uid: state["name"] for uid, state in states.items() if state["status"] == "ready"}
+    names = {uid: state["name"] for uid, state in states.items() if "name" in state}
     unknown = {uid for uid, state in states.items() if state["status"] == "unknown"}
     unavailable = sum(state["status"] in {"unavailable", "timeout", "permission"} for state in states.values())
     limited = bool(unknown - pending) or truncated

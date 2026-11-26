@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from lockbot.backend.app.bots.datasource import UtilizationConfig
 from lockbot.backend.app.managed_paths import protected_override_keys
 from lockbot.backend.app.resource_api.view_links import MAX_LINK_DAYS
+from lockbot.core.overnight import window_settings
 
 # ── config_overrides value bounds ─────────────────────────────────────────────
 _CFG_RULES: dict[str, tuple[int, int] | None] = {
@@ -42,8 +43,18 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     if not v:
         return v
     errors: list[str] = []
+    if any(key.startswith("OVERNIGHT_") for key in v):
+        window_settings(v)
     if "FORBID_RELOCK" in v and not isinstance(v["FORBID_RELOCK"], bool):
         errors.append("FORBID_RELOCK must be a boolean")
+    for key in (
+        "OVERNIGHT_ENABLED",
+        "OVERNIGHT_PAUSE_IDLE_CHECK",
+        "IDLE_UTILIZATION_CHECK_ENABLED",
+        "GROUP_REMIND_AGENT_IDLE",
+    ):
+        if key in v and not isinstance(v[key], bool):
+            errors.append(f"{key} must be a boolean")
     if "GROUP_REMIND_API_RESOURCES" in v and not isinstance(v["GROUP_REMIND_API_RESOURCES"], bool):
         errors.append("GROUP_REMIND_API_RESOURCES must be a boolean")
     if "QUEUE_AUTO_LOCK" in v and not isinstance(v["QUEUE_AUTO_LOCK"], bool):
@@ -170,6 +181,7 @@ class BotOut(BaseModel):
     bot_type: str
     platform: str
     group_id: str | None
+    group_name: str | None = None
     observed_group_ids: str | None = None
     identity_revision: int = 0
     last_user_id: str | None
@@ -199,9 +211,16 @@ class BotApplicationSummary(BaseModel):
     name: str
 
 
+class IdleSamplingStatus(BaseModel):
+    configured_nodes: int
+    fresh_nodes: int
+
+
 class BotDetail(BotOut):
-    migration_in_progress: bool = False
     """Detail view with sensitive fields (both masked and raw for show/copy)."""
+
+    idle_sampling: IdleSamplingStatus | None = None
+    migration_in_progress: bool = False
 
     owner: str = ""
     owner_role: str = ""

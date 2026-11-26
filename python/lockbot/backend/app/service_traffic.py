@@ -147,6 +147,7 @@ class TrafficStats:
         self.unattributed_requests = 0
         self.operations = Counter()
         self.operation_minutes = {}
+        self.verified_agent_minutes = Counter()
 
     def _ensure_bot(self, bot_id):
         if bot_id not in self.bots:
@@ -212,7 +213,18 @@ class TrafficStats:
         }
 
     def record(
-        self, *, source, route, status, duration_ms, received=0, sent=0, failed=False, bot_id=None, credential=None
+        self,
+        *,
+        source,
+        route,
+        status,
+        duration_ms,
+        received=0,
+        sent=0,
+        failed=False,
+        bot_id=None,
+        credential=None,
+        verified_agent=False,
     ):
         now = self.clock()
         minute, second = int(now // 60), int(now)
@@ -230,6 +242,11 @@ class TrafficStats:
         with self.lock:
             self.minutes = {key: value for key, value in self.minutes.items() if minute - 59 <= key <= minute}
             self.seconds = {key: value for key, value in self.seconds.items() if second - 59 <= key <= second}
+            if verified_agent:
+                for stamp in tuple(self.verified_agent_minutes):
+                    if not minute - 59 <= stamp <= minute:
+                        del self.verified_agent_minutes[stamp]
+                self.verified_agent_minutes[minute] += 1
             bucket = self.minutes.setdefault(minute, Counters())
             self.seconds[second] = self.seconds.get(second, 0) + 1
             if route not in self.routes and len(self.routes) >= 100:
@@ -259,6 +276,17 @@ class TrafficStats:
                         self.credentials[key]["counter"].add(status, duration_ms, received, sent, failed)
                 else:
                     self.unattributed_requests += 1
+
+    def recent_agent_totals(self):
+        minute = int(self.clock() // 60)
+        with self.lock:
+            reads = sum(count for stamp, count in self.verified_agent_minutes.items() if minute - 59 <= stamp <= minute)
+            operations = sum(
+                bucket.get(("agent", "dispatched"), 0)
+                for stamp, bucket in self.operation_minutes.items()
+                if minute - 59 <= stamp <= minute
+            )
+        return reads, operations
 
     def snapshot(self, bot_id=None):
         if self.scoped:
@@ -375,6 +403,7 @@ class ServiceTrafficMiddleware:
                     route=f"{method} {template}",
                     status=status,
                     duration_ms=(time.perf_counter() - started) * 1000,
+                    verified_agent=actor is not None or state.get("v2_activity_principal") is not None,
                     received=received,
                     sent=sent,
                     failed=failed,
@@ -463,6 +492,7 @@ def agent_history(
     cursor: str | None = Query(None, max_length=256),
     limit: int = Query(25, ge=1, le=100),
     query: str = Query("", max_length=128),
+    version: Literal["v1", "v2"] | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -474,7 +504,15 @@ def agent_history(
     from lockbot.backend.app.resource_api.privacy import audit_private_read, private_task_view
 
     private = private_task_view(db, user, include_private)
-    result = read_history(bot_id, limit=limit, cursor=cursor, query=query, private=private)
+    result = read_history(
+        bot_id,
+        limit=limit,
+        cursor=cursor,
+        query=query,
+        api_version=int(version[1:]) if version else None,
+        private=private,
+        include_source_ip=True,
+    )
     if private and result["items"]:
         audit_private_read(db, user, bot_id=bot_id, surface="management.agent_history")
     result["details_restricted"] = not private

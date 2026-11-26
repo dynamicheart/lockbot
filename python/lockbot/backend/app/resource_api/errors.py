@@ -32,6 +32,10 @@ def install_agent_validation_errors(app):
         "/api/agent/usage-declarations/{resource_id}",
         "/api/bots/{bot_id}/commands",
         "/api/bots/{bot_id}/usage-declarations/{resource_id}",
+        "/api/agent/v2/bindings",
+        "/api/agent/v2/bindings/{binding_id}/complete",
+        "/api/agent/v2/commands",
+        "/api/agent/v2/resources",
     }
 
     @app.exception_handler(RequestValidationError)

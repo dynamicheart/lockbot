@@ -3,15 +3,59 @@ export default {
     tabHint: 'Press Tab in an empty editor to insert an example',
     invalidSyntax: 'Invalid JSON. Check brackets, quotes, and commas.',
   },
+  nodeInformation: {
+    extraAttributes: 'Additional information',
+    deviceIndex: 'Card {index}',
+    rawJson: 'Raw JSON',
+    copyJson: 'Copy JSON',
+    backToList: 'Back to list',
+    details: 'Details',
+    loginMethod: 'Login method',
+    loginNote: 'Login note',
+    totalMemory: 'System memory',
+    cpuArchitecture: 'CPU architecture',
+    node: 'Node',
+    collected: 'Collected',
+    perCard: '{memory}/card',
+    scope: { host: 'Host', container: 'Container', unknown: 'Unknown scope' },
+    manualImport: 'Register manually',
+    exampleLoginMethod: 'SSH via the cluster bastion',
+    exampleLoginNote: 'Use the assigned cluster account',
+    title: 'Node information',
+    open: 'Configure node information',
+    help: 'View node hardware and login details, or register them with an agent.',
+    configureCollector: 'Register with an agent',
+    mapping: 'Node information JSON',
+    importHint: 'Edit the example or paste your node JSON.',
+    previewChanges: 'Preview changes',
+    backToEdit: 'Back to editing',
+    saved: 'Node information saved.',
+    validationFailed: 'Check the node IDs, login addresses and hardware fields.',
+    errors: {
+      node: 'Node “{node}” is not configured for this bot. Use a node ID from the list.',
+      fields: 'Node “{node}” has unknown fields or no fields to register.',
+      login: 'Node “{node}” has an invalid login mapping.',
+      mixedLogin: 'Node “{node}” uses both login and flat login fields. Use one format.',
+      host: 'Enter a hostname or IP address in host for node “{node}”.',
+      hostForIp: 'Enter a hostname in host when providing ip for node “{node}”.',
+      ip: 'Enter a valid IPv4 address in ip for node “{node}”.',
+      port: 'Enter an integer from 1 to 65535 in port for node “{node}”.',
+      method: 'Enter one line of up to 120 characters in method for node “{node}”.',
+      note: 'Enter one line of up to 256 characters in note for node “{node}”.',
+      hardware: 'Enter a card model and a positive count for node “{node}”. List each model once.',
+      cardHardware: 'Configure card models and counts in the card settings for this bot.',
+      format: 'Use the same version and nodes structure as the example. Keys must be unique.',
+    },
+  },
   nodeHardware: {
-    title: 'Node hardware',
-    open: 'Register hardware',
+    title: 'Hardware',
     help: 'Use an approved inventory to provide accelerator models and counts.',
     mapping: 'Hardware mapping JSON',
     saved: 'Registered hardware',
     review: 'Review changes before saving.',
     removed: 'Remove registered hardware',
-    unknownNode: 'The mapping contains an unknown node ID. Refresh the list and check the exact ID.',
+    unknownNode:
+      'The mapping contains an unknown node ID. Refresh the list and check the exact ID.',
     readFailed: 'Could not load the hardware inventory.',
     validateFailed: 'Use version 1, existing node IDs, unique models, and positive integer counts.',
     writeFailed: 'Could not save the hardware inventory.',
@@ -22,12 +66,12 @@ export default {
 
   nodeAccess: {
     title: 'Node access',
-    open: 'Configure addresses',
     loginAddress: 'Login address',
-    sharedUnavailable: 'Login address unavailable.',
-    workbenchAddress: 'Find login addresses in My Resources',
+    hostname: 'Hostname',
+    ipAddress: 'IP address',
+    sshPort: 'SSH port',
     purpose:
-      'Resource holders can see the node’s SSH address and port in the personal workbench or through an Agent.',
+      'Anyone with a valid resource link can see the registered hostname, IP address, and SSH port.',
     help: 'Paste the node mapping JSON or ask an Agent to generate it.',
     copyPrompt: 'Copy Agent prompt',
     mapping: 'Node mapping JSON',
@@ -52,12 +96,17 @@ export default {
     writeFailed: 'Could not confirm the change. Reopen to check the saved addresses.',
   },
   configurationCredentials: {
+    agentGuide: 'Collection and upload guide (AGENTS.md)',
+    configureWithAgent: 'Configure with an agent',
+    nodeInformation: 'Register node information',
+    nodeInformationHint: 'Allows registering login information and uploading hardware inventory.',
+    nodeInventory: 'Upload node hardware',
     title: 'Configuration credentials',
-    auditTab: 'Audit credentials',
     guideSelectTitle: 'Bot administrator',
     guideSelect: 'Choose the bots and permissions, then share the credential privately.',
     guideShareTitle: 'Maintenance Agent',
-    guideShare: 'Register machine addresses, deploy the utilization collector, and connect its data to LockBot.',
+    guideShare:
+      'Register machine addresses, deploy the utilization collector, and connect its data to LockBot.',
     guideUseTitle: 'A user’s own Agent',
     guideUse: 'Check utilization to choose a card. Once acquired, connect using its IP.',
     scopeHint:
@@ -66,7 +115,6 @@ export default {
     selectAllBots: 'Select all',
     clearBots: 'Clear selection',
     botLimitHint: 'Each credential can cover up to {count} bots. Select them in separate batches.',
-    nodeAccessHint: 'Allow the Agent to register node hostnames, IP addresses, and SSH ports.',
     datasourceHint: 'Allow the Agent to set the utilization data source and its node mapping.',
     create: 'Create configuration credential',
     empty: 'No configuration credentials yet',
@@ -89,7 +137,8 @@ export default {
     previous: 'Previous',
     next: 'Next',
     title: 'Credential management',
-    scopeHint: 'Super administrators can issue audit credentials for read-only access to detailed Agent task notes on selected bots.',
+    scopeHint:
+      'Super administrators can issue audit credentials for read-only access to detailed Agent task notes on selected bots.',
     name: 'Name',
     bots: 'Permitted bots',
     lifetime: 'Lifetime',
@@ -268,6 +317,7 @@ export default {
     proxyDeployment: 'Use server configuration',
     proxyDirect: 'Direct connection',
     proxyCustom: 'Site proxy',
+    proxyAddresses: 'Enter one HTTP(S) proxy per line, up to eight.',
     proxyEffective: 'Effective',
     proxyTest: 'Test saved HTTP connection',
     proxyHttpOk: 'HTTP available',
@@ -309,7 +359,6 @@ export default {
   },
   agentHistory: {
     agentLabel: 'Agent:',
-    noteLabel: 'Note:',
     operations: {
       command: 'Command',
       usage: { update: 'Update purpose', delete: 'Remove purpose' },
@@ -317,21 +366,24 @@ export default {
 
     resource: 'Resource',
     title: 'Agent history',
-    search: 'Search user, operation or visible task',
+    search: 'Search user, source IP, operation or task',
     retention:
       'Private operation files are size-rotated (up to 10 × 5 MiB). Pages scan at most 1 MiB; filtered pages can be empty with more history available. Refresh if older files have rotated away. Dispatch does not prove the requested resource operation succeeded.',
     error: 'History unavailable or cursor expired; refresh to reload.',
     time: 'Time',
     user: 'User',
+    sourceIp: 'Source IP',
     operation: 'Operation',
     task: 'Task',
     outcome: 'Processing result',
     previous: 'Previous',
     next: 'Next',
+    page: 'Page {page}',
     outcomes: {
       uncertain: 'Outcome uncertain',
       dispatched: 'Dispatched',
       applied: 'Applied',
+      replayed: 'Reused previous result',
       rejected: 'Rejected',
       may_have_executed: 'Outcome uncertain',
     },
@@ -387,7 +439,6 @@ export default {
     notConfigured: 'Not configured',
     remove: 'Remove',
     setupGuide: 'Setup guide',
-    agentSetupGuide: 'Set up with your Agent',
     adminHint:
       'Configure once for this bot. Prepare the source URL, metric names, labels and node/device mappings. Test from this browser, then save the bot. Never save shared source secrets.',
     testSave: 'Test and save',
@@ -449,7 +500,6 @@ export default {
     httpSource: 'HTTP entry source',
     allSources: 'All HTTP sources',
     live: 'Live',
-    history: 'History',
     range: 'Time range',
     start: 'Start time',
     end: 'End time',
@@ -485,7 +535,9 @@ export default {
     businessSources: { chat: 'Group messages', agent: 'Agent API', operator: 'OP API' },
 
     allBots: 'All bots with verified traffic',
-    byCredential: 'By credential',
+    byCredential: 'By HTTP caller',
+    byAgentToken: 'Agent tokens',
+    groupBy: 'Group by',
     credential: 'User / caller type',
     credentialKinds: {
       agent: 'Agent API',
@@ -754,7 +806,8 @@ export default {
     ask: 'Ask your Agent',
     example: '“Open my LockBot workbench.”',
     receive: 'Get a sign-in link',
-    receiveDetail: 'Your Agent uses its existing credential to create the link and sends it privately.',
+    receiveDetail:
+      'Your Agent uses its existing credential to create the link and sends it privately.',
     open: 'Open the link and confirm',
     openDetail: 'Confirm in your browser to open the workbench.',
     request:
@@ -763,8 +816,8 @@ export default {
     installHint: 'Agent missing the LockBot Skill?',
     installDetail: 'Send the install request to your Agent.',
     copyInstall: 'Copy install request',
-    installPackage: 'Download ZIP',
-    installRequest: 'Use this manifest to verify the ZIP, install the LockBot Skill, and confirm installation.\n{url}',
+    installPackage: 'Download Skill',
+    installRequest: 'Install the LockBot Skill from this ZIP and confirm installation.\n{url}',
   },
   personalCredentialActions: {
     copyAllStatus: 'Copy all statuses',
@@ -781,7 +834,6 @@ export default {
   },
   nav: {
     apiCredentials: 'API credentials',
-    myResources: 'My resources',
     dashboard: 'Dashboard',
     myBots: 'My Bots',
     createBot: 'Create Bot',
@@ -808,8 +860,9 @@ export default {
   // === Bot List ===
   botList: {
     filterByPlatform: 'Filter by platform',
-    agent_authorizations: 'Active Agent authorizations',
-    agent_usage_registrations: 'Active task registrations',
+    agent_tokens: 'Agent tokens',
+    agent_requests_hour: 'Agent requests (past hour)',
+    agent_operations_hour: 'Agent operations (past hour)',
     title: 'My Bots',
     searchPlaceholder: 'Search by name...',
     filterByStatus: 'Filter by status',
@@ -863,6 +916,15 @@ export default {
     defaultDurationHelp:
       'Default duration when user does not specify, in seconds. Default: 7200 (2h)',
     maxLockDuration: 'Max Lock Duration',
+    overnightLock: 'Overnight leases',
+    overnightLockHelp:
+      'Weeknight leases can extend to the morning cutoff. Weekend leases run from Friday evening to Monday morning within the usual limit.',
+    overnightPauseIdleCheck: 'Pause low-utilization checks overnight',
+    overnightPauseIdleCheckHelp:
+      'Pause reminders and reclamation on weeknights and from Friday evening to Monday morning. A fresh check starts with the first valid sample after the cutoff.',
+    overnightStart: 'Start (18:00–23:59)',
+    overnightEnd: 'Morning cutoff (00:00–10:00)',
+    overnightTimezone: 'Overnight timezone',
     maxLockDurationHelp: 'Maximum allowed lock time in seconds. -1 means unlimited.',
     maxLockDurationUnlimited: 'Unlimited (-1)',
     unlimited: 'Unlimited',
@@ -880,9 +942,22 @@ export default {
       'On: warn before expiry without releasing; Off (default): release and notify on expiry',
     earlyNotifyOn: 'Early Warning',
     earlyNotifyOff: 'Release on Expiry',
-    groupRemindApiResources: 'Also send API resource reminders to the group',
+    idleUtilizationCheck: '20-minute low utilization check',
+    idleUtilizationCheckHelp:
+      'Applies to exclusive resources with background sampling. Reminders and reclamation require either no unreserved idle resources on this bot or a waiter for the current resource. Configure the data source in the bot details and register background sampling targets.',
+    idleSampling: {
+      unconfigured: 'Data source not configured',
+      waiting: 'Waiting for valid samples',
+      partial: 'Partial sampling',
+      ready: 'Data source healthy',
+    },
+    groupRemindAgentIdle: 'Low utilization reminders in chat',
+    groupRemindAgentIdleHelp:
+      'Sends a group reminder for low-utilization Agent locks. The holder can confirm in the group.',
+    groupRemindApiResources: 'Renewal, expiry and queue reminders in chat',
     groupRemindApiResourcesHelp: 'Applies to automatic renewal, expiry, and queue reminders.',
     queueAutoLock: 'Auto-lock when your turn arrives',
+    queueAutoLockHelp: 'Assign an available resource to the first booking and start its lock duration.',
     durationWhitelist: 'Lock Duration Whitelist',
     durationWhitelistHelp: 'Users exempt from MAX_LOCK_DURATION.',
     durationWhitelistPlaceholder: 'Type a username and press Enter',
@@ -938,8 +1013,6 @@ export default {
     agentAccessStats: 'Access statistics',
     agentOperations: 'Operation history',
     agentAuthorizations: 'Authorization records',
-    notesScopeHelp:
-      'Super administrators only. Temporarily shows detailed Agent notes in this operation history. Reads are audited; leaving this view turns it off.',
     authorizationAudit: 'Authorization audit',
     config: 'Configuration',
     status: 'Status',
@@ -1016,33 +1089,9 @@ export default {
   },
 
   personalWorkbench: {
-    title: 'Personal workbench',
-    navigation: 'Primary navigation',
-    myAllocations: 'My allocations',
-    resourceGroups: 'Resource groups',
-    myCredentials: 'My credentials',
+    retired: 'Personal resource dashboard retired',
+    retiredDescription: 'Use the LockBot CLI to find, request, and manage resources.',
     console: 'Bot console',
-    more: 'More',
-    clearBrowser: 'Clear this browser’s access',
-    clearBrowserTitle: 'Clear this browser’s access?',
-    clearBrowserDetail:
-      'You’ll need to authorize this browser again to view personal resources. Agent keys stay valid.',
-    clearBrowserConfirm: 'Clear access',
-    plugins: {
-      title: 'Loaded plugins',
-      reporterTitle: 'External resources',
-      reporterDescription: 'Show your allocations and reservations from other LockBot services.',
-      reporterLoaded:
-        'The service has loaded {count} resource reporting plugin | The service has loaded {count} resource reporting plugins',
-      reporterNotLoaded: 'The service has no resource reporting plugins',
-      reporterVisible: 'Sources visible to this session',
-      reporterUnknown: 'No external source identified for this session',
-      loadingSources: 'Loading resource sources',
-      metricsTitle: 'Utilization sources',
-      metricsDescription: 'See node and device utilization in authorized resource details.',
-      metricsConfigured: 'A utilization source is configured for resources you hold',
-      metricsUnavailable: 'No utilization source for resources you hold',
-    },
   },
   personalAgentActivity: {
     title: 'Agent activity',
@@ -1051,7 +1100,8 @@ export default {
     unnamed: 'Unnamed client',
     sourceIp: 'Last source IP {ip}',
     lastSeen: 'Last seen',
-    ipHelp: 'LockBot reports the source IP it observes. This may be a proxy or a shared network address.',
+    ipHelp:
+      'LockBot reports the source IP it observes. This may be a proxy or a shared network address.',
   },
 
   agentActivity: {
@@ -1059,18 +1109,19 @@ export default {
       'Authorizations count user–bot pairs and may be shared by Agents. Tasks count current valid resource declarations.',
     expandPurpose: 'Show full purpose',
     statistics: 'Agent statistics',
-    platformStatistics: 'Platform Agent statistics',
     active: 'Active',
     history: 'Historical',
     all: 'All',
     expired: 'Invalid',
-    authorizations: 'Active user authorizations',
-    usageRegistrations: 'Current task declarations',
+    tokens: 'Agent tokens',
 
     title: 'Agent activity',
-    description: 'Grouped by user authorization. Agents sharing a key share these counters.',
+    description: 'V1 counts cover one bot. V2 counts cover all bots authorized by the token.',
+    version: 'Version',
+    allVersions: 'All versions',
+    inactive: 'No active grants',
     empty: 'No Agent activity',
-    user: 'User / authorization label',
+    user: 'User',
     labelHelp: 'Caller-declared label; not proof of identity.',
     authorization: 'Authorization',
     revoked: 'Revoked',
@@ -1084,7 +1135,7 @@ export default {
     counting: 'How counts work',
     countingHelp:
       'HTTP attempts, not successful resource changes. Refused includes throttled; both are already counted in reads/writes. Revoked authorizations retain historical counts. Not revoked does not guarantee that an authorization is unexpired or usable.',
-    error: 'Could not refresh Agent activity. Previously loaded records are shown.',
+    error: 'Could not load Agent activity.',
   },
   // === Bot Card ===
   botCard: {
@@ -1106,6 +1157,10 @@ export default {
 
   // === Log Viewer ===
   log: {
+    category: 'Log type',
+    allCategories: 'All types',
+    operationBadge: 'Action',
+    summaryUnavailable: 'No displayable summary',
     privateDetailsRestricted: 'Showing operation summaries.',
     all: 'All',
     commandLog: 'Command Log',
@@ -1322,7 +1377,6 @@ export default {
 
   // === Audit Logs ===
   audit: {
-    includeReadEvents: 'Include read audits',
     title: 'Audit Logs',
     operator: 'Operator',
     role: 'Role',
@@ -1347,9 +1401,6 @@ export default {
     dispatched: 'Dispatched',
     dispatchedNote:
       'The command was dispatched; this does not prove the resource operation succeeded. Read resource state to verify.',
-    privateView: 'Show Agent task notes',
-    privateViewHelp:
-      'Notes are submitted by the Agent and are visible only to the same user and super administrators.',
     targetTypes: {
       bot: 'Bot',
       user: 'User',

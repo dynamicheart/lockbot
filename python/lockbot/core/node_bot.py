@@ -13,7 +13,6 @@ from lockbot.core.i18n import t
 from lockbot.core.io import (
     create_or_load_node_state,
     log_to_file,
-    save_bot_state_to_file,
 )
 from lockbot.core.utils import (
     create_user_info,
@@ -38,8 +37,8 @@ class NodeBot(BaseLockBot):
     class _state_class(BotState):
         _loader = staticmethod(create_or_load_node_state)
 
-    def _resource_state(self):
-        return self.state.bot_state
+    def _resource_state(self, state=None):
+        return self.state.bot_state if state is None else state
 
     def _parse_resource_command(self, *args, **kwargs):
         return self.parse_command(*args, **kwargs)
@@ -48,7 +47,7 @@ class NodeBot(BaseLockBot):
         return selected is None or key == selected
 
     def supported_commands(self):
-        return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query", "alias"]
+        return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query", "label", "alias"]
 
     def parse_command(self, user_id, command_key, command, parsing_duration=False):
         """
@@ -109,8 +108,9 @@ class NodeBot(BaseLockBot):
         """
         Query usage of a node
         """
-        with self._state_guard():
-            content = self._msg_with_usage("query.cluster_usage_title", node_key=node_key)
+        snapshot = self.published_snapshot()
+        usage = self._current_usage(node_key, state=snapshot.state)
+        content = self._msg_with_usage("query.cluster_usage_title", usage=usage)
         return self._query_reply(content, user_id)
 
     def lock(self, user_id, command, *, acquisition_limit=None):
@@ -121,8 +121,6 @@ class NodeBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
@@ -137,26 +135,12 @@ class NodeBot(BaseLockBot):
                 return self.show_error(user_id, self._msg_with_usage("error.node_in_use_or_shared"))
 
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
 
-            if max_dur > 0 and user_id not in whitelist:
-                for node in nodes:
-                    total_duration = duration
-                    user_info = find_user_info(node["current_users"], user_id)
-                    if user_info:
-                        total_duration += user_info["duration"]
-                        start_time = user_info["start_time"]
-                    else:
-                        start_time = timestamp
-                    if remaining_duration(start_time, total_duration) > max_dur:
-                        return self.show_error(
-                            user_id,
-                            t(
-                                "error.lock_max_duration_exceeded",
-                                config=self.config,
-                                max_duration=format_duration(max_dur, config=self.config),
-                                whitelist_hint=self._whitelist_hint(),
-                            ),
-                        )
+            for node in nodes:
+                holder = find_user_info(node["current_users"], user_id)
+                if limit.rejects(holder, duration):
+                    return limit.error(self, user_id, holder)
 
             for node in nodes:
                 node["status"] = "exclusive"
@@ -170,6 +154,7 @@ class NodeBot(BaseLockBot):
 
                 user_info["duration"] = total_duration
                 user_info["is_notified"] = False
+                limit.record(user_info)
                 node["current_users"] = [user_info]
 
             reply = self.adapter.build_reply(self._msg_with_usage("success.resource_locked"), [user_id])
@@ -185,8 +170,6 @@ class NodeBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
@@ -197,24 +180,12 @@ class NodeBot(BaseLockBot):
                 return self.show_error(user_id, self._msg_with_usage("error.node_exclusive_mode"))
 
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
 
-            if max_dur > 0 and user_id not in whitelist:
-                for node in nodes:
-                    user_info = find_user_info(node["current_users"], user_id)
-                    if user_info:
-                        total_duration = user_info["duration"] + duration
-                        start_time = user_info["start_time"]
-                    else:
-                        total_duration = duration
-                        start_time = timestamp
-                    if remaining_duration(start_time, total_duration) > max_dur:
-                        msg = t(
-                            "error.slock_max_duration_exceeded",
-                            config=self.config,
-                            max_duration=format_duration(max_dur, config=self.config),
-                            whitelist_hint=self._whitelist_hint(),
-                        )
-                        return self.show_error(user_id, msg)
+            for node in nodes:
+                holder = find_user_info(node["current_users"], user_id)
+                if limit.rejects(holder, duration):
+                    return limit.error(self, user_id, holder, shared=True)
 
             for node in nodes:
                 node["status"] = "shared"
@@ -225,6 +196,7 @@ class NodeBot(BaseLockBot):
                 else:
                     user_info["duration"] += duration
                     user_info["is_notified"] = False
+                limit.record(user_info)
 
             reply = self.adapter.build_reply(self._msg_with_usage("success.resource_locked"), [user_id])
             log_to_file(user_id, "slock", node_keys, duration, config=self.config)
@@ -410,6 +382,7 @@ class NodeBot(BaseLockBot):
 
         state_changed = False
         alerts = []
+        ended = []
 
         with self._state_guard():
             # Release expired resources
@@ -421,6 +394,14 @@ class NodeBot(BaseLockBot):
                         if remaining_time <= 0:
                             removed_users_id.append(user_info["user_id"])
                             state_changed = True
+                            ended.append(
+                                (
+                                    node_key,
+                                    user_info["user_id"],
+                                    "holding_expired",
+                                    user_info["start_time"] + user_info["duration"],
+                                )
+                            )
 
                             # Send expiry notification only if early warning was never sent.
                             # When EARLY_NOTIFY=True and warning fired on time, is_notified=True → silent release.
@@ -442,7 +423,7 @@ class NodeBot(BaseLockBot):
                         node["status"] = "idle"
 
             if state_changed:
-                save_bot_state_to_file(self.state.bot_state, config=self.config)
+                self._persist_state(ended=ended)
 
             # Compute next wakeup: scan remaining active users after mutations
             min_next = float("inf")
@@ -468,7 +449,7 @@ class NodeBot(BaseLockBot):
 
         return max(1.0, min_next) if min_next != float("inf") else None
 
-    def _current_usage(self, node_filter=None):
+    def _current_usage(self, node_filter=None, *, state=None):
         """
         _current_usage
         """
@@ -495,6 +476,6 @@ class NodeBot(BaseLockBot):
             return usage_info
 
         usage_info = ""
-        usage_info += _get_current_usage({k: v for k, v in self._resource_state().items()})
+        usage_info += _get_current_usage(self._resource_state(state))
 
         return usage_info

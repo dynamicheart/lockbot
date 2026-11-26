@@ -5,9 +5,33 @@
         <h3 v-if="!hideHeading">{{ t('agentActivity.title') }}</h3>
         <p>{{ t('agentActivity.description') }}</p>
       </div>
-      <el-button size="small" :loading="loading" @click="refresh">
-        <el-icon><Refresh /></el-icon> {{ t('common.refresh') }}
-      </el-button>
+      <div class="activity-controls">
+        <el-select
+          v-model="version"
+          size="small"
+          class="version-filter"
+          :aria-label="t('agentActivity.version')"
+          @change="changeFilter"
+        >
+          <el-option value="all" :label="t('agentActivity.allVersions')" />
+          <el-option value="v1" label="V1" />
+          <el-option value="v2" label="V2" />
+        </el-select>
+        <el-select
+          v-model="status"
+          size="small"
+          class="authorization-filter"
+          :aria-label="t('agentActivity.authorization')"
+          @change="changeFilter"
+        >
+          <el-option value="active" :label="t('agentActivity.active')" />
+          <el-option value="history" :label="t('agentActivity.history')" />
+          <el-option value="all" :label="t('agentActivity.all')" />
+        </el-select>
+        <el-button size="small" :loading="loading" @click="refresh">
+          <el-icon><Refresh /></el-icon> {{ t('common.refresh') }}
+        </el-button>
+      </div>
     </div>
     <el-alert
       v-if="error"
@@ -18,16 +42,6 @@
       class="activity-error"
     />
     <div v-loading="loading" :aria-busy="loading">
-      <el-radio-group
-        v-model="status"
-        size="small"
-        style="margin-bottom: 16px"
-        @change="changeFilter"
-      >
-        <el-radio-button value="active">{{ t('agentActivity.active') }}</el-radio-button>
-        <el-radio-button value="history">{{ t('agentActivity.history') }}</el-radio-button>
-        <el-radio-button value="all">{{ t('agentActivity.all') }}</el-radio-button>
-      </el-radio-group>
       <el-table
         :data="items"
         :empty-text="t('agentActivity.empty')"
@@ -43,10 +57,15 @@
             </div>
             <div class="actor-note">
               <span>{{ platformLabel(row.platform, $t) }}</span>
-              <el-tooltip :content="t('agentActivity.labelHelp')" placement="top">
-                <span class="authorization-label">{{ row.label || '—' }}</span>
-              </el-tooltip>
+              <span v-if="row.bot_name">{{ row.bot_name }}</span>
             </div>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('agentActivity.version')" min-width="80">
+          <template #default="{ row }">
+            <el-tag size="small" type="info" effect="plain">{{
+              row.version?.toUpperCase()
+            }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column :label="t('agentActivity.authorization')" min-width="110">
@@ -56,9 +75,9 @@
                 t(
                   row.active
                     ? 'agentActivity.active'
-                    : row.revoked
-                      ? 'agentActivity.revoked'
-                      : 'agentActivity.expired'
+                    : row.expired
+                      ? 'agentActivity.expired'
+                      : 'agentActivity.inactive'
                 )
               }}
             </el-tag>
@@ -78,7 +97,7 @@
                 'count-zero': !row[metric.key],
                 'count-warning': metric.warning && row[metric.key] > 0,
               }"
-              >{{ number(row[metric.key]) }}</span
+              >{{ row[metric.key] == null ? '—' : number(row[metric.key]) }}</span
             >
           </template>
         </el-table-column>
@@ -111,19 +130,14 @@
 
 <script setup>
 import { platformLabel } from '../utils/platformDisplay'
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { useActorDisplay } from '../utils/useFeishuDisplayNames'
 import { formatActivityTime } from '../utils/activityDisplay'
 
-const props = defineProps({
-  hideHeading: { type: Boolean, default: false },
-  botId: { type: Number, required: true },
-  includePrivate: { type: Boolean, default: false },
-})
-const emit = defineEmits(['updated'])
+defineProps({ hideHeading: Boolean })
 const { t, locale } = useI18n()
 const actorNames = useActorDisplay()
 const items = ref([])
@@ -136,10 +150,13 @@ const metrics = [
   { key: 'limited_requests', label: 'limited', warning: true },
 ]
 const status = ref('active')
+const version = ref('all')
 const page = ref(1)
 const total = ref(0)
 function changeFilter() {
   page.value = 1
+  items.value = []
+  total.value = 0
   refresh()
 }
 const number = (value) => new Intl.NumberFormat(locale.value).format(value || 0)
@@ -149,18 +166,18 @@ async function refresh() {
   loading.value = true
   error.value = false
   try {
-    const { data } = await api.get(`/bots/${props.botId}/agent-activity`, {
+    const { data } = await api.get('/admin/agent-activity', {
       params: {
         status: status.value,
+        include_legacy: true,
+        version: version.value === 'all' ? undefined : version.value,
         page: page.value,
         limit: 20,
-        include_private: props.includePrivate,
       },
     })
     if (current === generation) {
       items.value = data.items
       total.value = data.total
-      emit('updated')
     }
   } catch {
     if (current === generation) error.value = true
@@ -169,16 +186,6 @@ async function refresh() {
   }
 }
 onMounted(refresh)
-watch(
-  [() => props.botId, () => props.includePrivate],
-  () => {
-    items.value = []
-    total.value = 0
-    page.value = 1
-    refresh()
-  },
-  { flush: 'sync' }
-)
 onBeforeUnmount(() => generation++)
 </script>
 
@@ -191,7 +198,20 @@ onBeforeUnmount(() => generation++)
   gap: 16px;
 }
 .activity-toolbar {
+  flex-wrap: wrap;
   margin: 6px 0 20px;
+}
+.activity-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.authorization-filter {
+  width: 126px;
+}
+.version-filter {
+  width: 120px;
 }
 .activity-toolbar h3 {
   margin: 0 0 6px;

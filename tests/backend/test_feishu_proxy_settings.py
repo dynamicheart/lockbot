@@ -32,6 +32,33 @@ def test_existing_http_client_observes_policy_and_direct_bypasses_ambient(monkey
     assert os.environ["https_proxy"] == "http://other.example:9999"
 
 
+def test_proxy_failover_keeps_reads_sticky_and_does_not_replay_writes():
+    import requests
+    from lockbot.core.platforms.feishu_proxy import request
+
+    primary, backup = "http://first.example:8188", "http://backup.example:8188"
+    calls = []
+    failures = {primary}
+    configure("custom", f"{primary}\n{backup}")
+
+    def send(url, *, proxies, **kwargs):
+        proxy = proxies["https"]
+        calls.append(proxy)
+        if proxy in failures:
+            raise requests.ConnectionError()
+        return 200
+
+    def fetch(retry):
+        return request(send, "https://example.test", retry=retry, timeout=(3, 5))
+
+    assert fetch(True) == fetch(True) == 200
+    assert calls == [primary, backup, backup]
+    failures.add(backup)
+    with pytest.raises(requests.ConnectionError):
+        fetch(False)
+    assert calls == [primary, backup, backup, backup]
+
+
 def test_site_policy_authorization_atomic_validation_restore_and_effective_restart(
     client, admin_header, auth_header, db_session, monkeypatch
 ):

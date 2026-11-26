@@ -266,9 +266,13 @@ def list_all_bots(
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    from lockbot.backend.app.feishu.labels import bot_display_names
+
     rows = db.query(Bot, User.username).join(User, Bot.user_id == User.id).filter(Bot.is_deleted.is_(False)).all()
+    names = bot_display_names(db, [bot for bot, _ in rows])
     return [
-        {c.name: getattr(bot, c.name) for c in bot.__table__.columns} | {"owner": username} for bot, username in rows
+        {c.name: getattr(bot, c.name) for c in bot.__table__.columns} | {"owner": username} | names.get(bot.id, {})
+        for bot, username in rows
     ]
 
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lockbot"
-version = "3.3.0"
+version = "3.5.0"
 description = "Cluster resource management and queuing for Infoflow and Feishu"
 readme = "README.md"
 license = {text = "MIT"}
@@ -31,6 +31,7 @@ dependencies = [
     "pycryptodome",
     "requests",
     "six",
+    "tzdata; sys_platform == 'win32'",
     # Backend (platform mode)
     "fastapi",
     "uvicorn[standard]",
@@ -42,6 +43,7 @@ dependencies = [
     "httpx",
     "slowapi",
     "pyzipper",
+    "Pygments",
     "bce-python-sdk",
 ]
 
@@ -60,9 +62,10 @@ Issues = "https://github.com/dynamicheart/lockbot/issues"
 
 [tool.setuptools.packages.find]
 where = ["python"]
+exclude = ["lockbot.backend.app.agent_skill.scripts", "lockbot.backend.app.agent_skill.references"]
 
 [tool.setuptools.package-data]
-lockbot = ["core/i18n/*.py", "backend/app/agent_skill/*.md", "backend/app/agent_skill/references/*.md", "backend/app/agent_skill/scripts/*.py", "backend/app/personal_panel/assets/*"]
+lockbot = ["core/i18n/*.py", "backend/app/agent_skill/v2.md", "backend/app/agent_skill/agents/openai.yaml", "backend/app/resource_api/configuration_agents.md"]
 
 [tool.ruff]
 target-version = "py310"

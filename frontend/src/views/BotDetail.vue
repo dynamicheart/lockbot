@@ -418,32 +418,42 @@
               :device-resources="['DEVICE', 'QUEUE_DEVICE'].includes(botType)"
               :save="datasourceActions.save"
               :authorize="datasourceActions.authorize"
-            />
+            >
+              <template #credential>
+                <router-link
+                  class="datasource-credential-link"
+                  :to="{
+                    name: 'ApiCredentials',
+                    query: { bot: String(bot.id), scope: 'datasource:write' },
+                  }"
+                >
+                  {{ $t('configurationCredentials.configureWithAgent') }}
+                </router-link>
+              </template>
+            </ResourceDatasourceEditor>
             <span v-if="!canEdit">{{
               datasourceConfig?.name || $t('utilization.notConfigured')
             }}</span>
           </el-descriptions-item>
           <el-descriptions-item v-if="canEdit" :span="2">
             <template #label>
-              {{ $t('nodeAccess.title') }}
+              {{ $t('nodeInformation.title') }}
               <el-tooltip
-                :content="$t('nodeAccess.purpose')"
+                :content="$t('nodeInformation.help')"
                 :trigger="['hover', 'focus']"
                 placement="top"
               >
-                <el-icon class="help-icon" tabindex="0" :aria-label="$t('nodeAccess.purpose')">
+                <el-icon class="help-icon" tabindex="0" :aria-label="$t('nodeInformation.help')">
                   <QuestionFilled />
                 </el-icon>
               </el-tooltip>
             </template>
-            <NodeAccessEditor :key="bot.id" :bot-id="bot.id" @changed="fetchNodeAddresses" />
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-if="canEdit && ['NODE', 'QUEUE'].includes(botType)"
-            :span="2"
-            :label="$t('nodeHardware.title')"
-          >
-            <NodeHardwareEditor :key="bot.id" :bot-id="bot.id" />
+            <NodeInformationEditor
+              :key="bot.id"
+              :bot-id="bot.id"
+              :can-edit-hardware="['NODE', 'QUEUE'].includes(botType)"
+              @changed="fetchNodeAddresses"
+            />
           </el-descriptions-item>
         </el-descriptions>
       </el-card>
@@ -506,29 +516,6 @@
             </el-tag>
           </div>
         </div>
-      </el-card>
-
-      <el-card v-if="agentMetrics.length" style="margin-bottom: 20px">
-        <template #header>
-          <div style="display: flex; justify-content: space-between; align-items: center">
-            <span :title="$t('agentActivity.summaryHelp')">{{
-              $t('agentActivity.statistics')
-            }}</span>
-            <el-button size="small" @click="loadAgentSummary">{{ $t('common.refresh') }}</el-button>
-          </div>
-        </template>
-        <el-row :gutter="20" style="row-gap: 12px">
-          <el-col v-for="metric in agentMetrics" :key="metric.key" :xs="12" :sm="8" :lg="4">
-            <div class="detail-stat-box">
-              <div class="detail-stat-number">
-                {{ agentSummary?.[metric.key] ?? '—' }}
-              </div>
-              <div class="detail-stat-desc">
-                {{ $t(`agentActivity.${metric.label}`) }}
-              </div>
-            </div>
-          </el-col>
-        </el-row>
       </el-card>
 
       <!-- Cluster State -->
@@ -647,41 +634,17 @@
           <el-tab-pane v-if="canEdit" label="Agent" name="agents">
             <template v-if="activityTab === 'agents'">
               <div class="agent-toolbar">
-                <el-radio-group v-model="agentTab" size="small" class="agent-sections">
-                  <el-radio-button value="access">{{
-                    $t('botDetail.agentAccessStats')
-                  }}</el-radio-button>
-                  <el-radio-button value="history">{{
-                    $t('botDetail.agentOperations')
-                  }}</el-radio-button>
-                  <el-radio-button value="audit">{{
-                    $t('botDetail.agentAuthorizations')
-                  }}</el-radio-button>
-                </el-radio-group>
-                <el-tooltip
-                  v-if="agentTab === 'history' && authStore.isSuperAdmin"
-                  :content="$t('botDetail.notesScopeHelp')"
-                  placement="top"
+                <el-select
+                  v-model="agentTab"
+                  size="small"
+                  class="agent-sections"
+                  aria-label="Agent"
                 >
-                  <el-switch
-                    v-model="showPrivateTasks"
-                    :active-text="$t('audit.privateView')"
-                    :aria-label="$t('audit.privateView')"
-                    size="small"
-                  />
-                </el-tooltip>
+                  <el-option value="history" :label="$t('botDetail.agentOperations')" />
+                  <el-option value="audit" :label="$t('botDetail.agentAuthorizations')" />
+                </el-select>
               </div>
-              <AgentActivity
-                v-if="agentTab === 'access'"
-                :bot-id="bot.id"
-                :hide-heading="true"
-                @updated="loadAgentSummary"
-              />
-              <AgentHistory
-                v-else-if="agentTab === 'history'"
-                :bot-id="bot.id"
-                :include-private="privateTaskView"
-              />
+              <AgentHistory v-if="agentTab === 'history'" :bot-id="bot.id" />
               <BotAudit v-else :bot-id="bot.id" />
             </template>
           </el-tab-pane>
@@ -743,8 +706,7 @@ import { platformLabel } from '../utils/platformDisplay'
 import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import BotMigrationPreflight from '../components/BotMigrationPreflight.vue'
 import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
-import NodeAccessEditor from '../components/NodeAccessEditor.vue'
-import NodeHardwareEditor from '../components/NodeHardwareEditor.vue'
+import NodeInformationEditor from '../components/NodeInformationEditor.vue'
 import { formatNodeAccess } from '../utils/nodeAccess'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
@@ -755,7 +717,6 @@ import { ref, computed, onMounted, onBeforeUnmount, provide, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
-import AgentActivity from '../components/AgentActivity.vue'
 import AgentHistory from '../components/AgentHistory.vue'
 import { actorDisplayKey, useFeishuDisplayNames } from '../utils/useFeishuDisplayNames'
 import ServiceTrafficPanel from '../components/ServiceTrafficPanel.vue'
@@ -789,20 +750,7 @@ const routeGeneration = ref(0)
 const authStore = useAuthStore()
 
 const activityTab = ref('logs')
-const agentTab = ref('access')
-const agentSummary = ref(null)
-const agentMetrics = computed(() =>
-  canEdit.value || authStore.isAdmin
-    ? [
-        { key: 'authorizations', label: 'authorizations' },
-        { key: 'usage_registrations', label: 'usageRegistrations' },
-        { key: 'reads', label: 'reads' },
-        { key: 'writes', label: 'writes' },
-        { key: 'refused', label: 'refused' },
-        { key: 'limited', label: 'limited' },
-      ]
-    : []
-)
+const agentTab = ref('history')
 
 const bot = ref(null)
 const nodeAddresses = ref(new Map())
@@ -965,14 +913,6 @@ const viewJson = ref(false)
 const stateText = ref('')
 const stateData = ref(null)
 const stateUsage = ref([])
-const showPrivateTasks = ref(false)
-const privateTaskView = computed(
-  () =>
-    authStore.isSuperAdmin &&
-    activityTab.value === 'agents' &&
-    agentTab.value === 'history' &&
-    showPrivateTasks.value
-)
 const stateSaving = ref(false)
 
 // Secret field visibility
@@ -1094,27 +1034,6 @@ function formatDuration(seconds) {
 // - admin: can only VIEW other users' bots, cannot start/stop/edit/delete
 // - user: can only operate own bots, no transfer
 const canEdit = computed(() => authStore.canEditBot(bot.value))
-async function loadAgentSummary() {
-  const target = captureBot()
-  if (!target || (!canEdit.value && !authStore.isAdmin)) return
-  const read = detailScope.begin('summary')
-  if (!read) return
-  try {
-    const { data } = await api.get(`/bots/${read.id}/agent-summary`, { signal: read.signal })
-    if (read.isCurrent()) agentSummary.value = data
-  } catch {
-    if (read.isCurrent()) agentSummary.value = null
-  } finally {
-    read.finish()
-  }
-}
-watch(
-  () => bot.value,
-  () => {
-    agentSummary.value = null
-    loadAgentSummary()
-  }
-)
 
 const canDelete = computed(() => canEdit.value)
 const canOperate = computed(() => authStore.canOperateBot(bot.value))
@@ -1618,21 +1537,6 @@ async function handleDelete() {
 }
 
 watch(
-  [activityTab, agentTab],
-  ([section, tab]) => {
-    if (section !== 'agents' || tab !== 'history') showPrivateTasks.value = false
-  },
-  { flush: 'sync' }
-)
-watch(
-  () => authStore.isSuperAdmin,
-  (allowed) => {
-    if (!allowed) showPrivateTasks.value = false
-  },
-  { flush: 'sync' }
-)
-
-watch(
   [canEdit, () => authStore.user?.id, () => bot.value?.id],
   ([allowed]) => {
     nodeAddresses.value = new Map()
@@ -1646,13 +1550,11 @@ watch(
   () => String(route.params.id || ''),
   (id) => {
     detailScope.enter(id)
-    showPrivateTasks.value = false
     routeGeneration.value++
     bot.value = null
     stateData.value = null
     stateUsage.value = []
     commandLogs.value = []
-    agentSummary.value = null
     resourceMetrics.value = { enabled: false }
     cachedUsers.value = []
     editingState.value = viewJson.value = false
@@ -1664,7 +1566,7 @@ watch(
     botLanguage.value = 'zh'
     loading.value = false
     activityTab.value = 'logs'
-    agentTab.value = 'access'
+    agentTab.value = 'history'
     stateAutoRefresh.value = false
     clearInterval(stateTimer)
     stateTimer = null
@@ -1697,12 +1599,10 @@ function formatDate(d) {
   gap: 8px 20px;
 }
 .agent-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
   margin-bottom: 18px;
+}
+.agent-sections {
+  width: min(100%, 152px);
 }
 .help-icon {
   margin-left: 5px;

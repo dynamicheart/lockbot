@@ -152,10 +152,9 @@ def notify_group(
     command,
     actor_id,
     command_word,
-    agent_label=None,
-    purpose=None,
     task_category=None,
     target=None,
+    defer=False,
 ):
     """Return true only for an accepted immediate send; false also includes queued notices.
 
@@ -180,7 +179,8 @@ def notify_group(
             # Compatibility for direct adapter callers. API routes always supply a scoped
             # target; an unscoped direct call is never eligible for later network delivery.
             target = NotificationTarget(bot_id, "", 0, 0, str(id(bot)), bot.config.get_val("LANGUAGE", "zh"))
-        return notification_budget.offer(target, PublicEvent(text, word), immediate=lambda body: _send_text(bot, body))
+        immediate = None if defer else lambda body: _send_text(bot, body)
+        return notification_budget.offer(target, PublicEvent(text, word), immediate=immediate)
     except Exception:
         logger.warning("Bot %d: could not enqueue API notification", bot_id)
         return False

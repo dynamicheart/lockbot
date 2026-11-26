@@ -3,6 +3,7 @@
 # ruff: noqa: F811
 import copy
 import json
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
 import pytest
@@ -27,7 +28,11 @@ def command(client, case, text, *, other=False, purpose="develop"):
     response = client.post(
         f"/api/bots/{case['bot_id']}/commands",
         headers=case["other_headers"] if other else case["headers"],
-        json={"command": text, "agent_label": "test-agent" if other else "dev-agent", "purpose": purpose},
+        json={
+            "command": text,
+            "task_category": "unit_testing" if other else "operator_development",
+            "purpose": purpose,
+        },
     )
     assert response.status_code == 200, response.text
 
@@ -145,6 +150,27 @@ def test_key_is_reverified_after_admission(client, operator, session_factory, mo
     monkeypatch.setattr(manager, "admit", rotate_then_admit)
     response = client.get(f"/api/bots/{operator['bot_id']}/op/resources", headers=operator["op_headers"])
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize("api", ["NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE"], indirect=True)
+def test_op_snapshot_and_holding_version_can_be_read_during_a_write(client, operator):
+    card_bot = operator["bot"].config.get_val("BOT_TYPE") in {"DEVICE", "QUEUE_DEVICE"}
+    command(client, operator, "lock n1 dev0 1h" if card_bot else "lock n1 1h")
+    base = f"/api/bots/{operator['bot_id']}/op/resources"
+    with ThreadPoolExecutor(max_workers=1) as pool, operator["bot"]._lock:
+        response = pool.submit(
+            client.get,
+            base,
+            headers=operator["op_headers"],
+            params={"include_holding_versions": "true"},
+        ).result(timeout=5)
+    assert response.status_code == 200, response.text
+    resource = response.json()["resources"][0]
+    entry = resource["devices"][0] if card_bot else resource
+    (holder,) = entry["holders"]
+    assert holder["external_user_id"] == "alice"
+    assert holder["holding_version"]
+    assert holder["usage"] is not None
 
 
 def test_public_schema_marks_both_new_endpoints_as_op_only(client):

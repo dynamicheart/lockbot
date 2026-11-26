@@ -8,6 +8,8 @@ command_source = ContextVar("lockbot_command_source", default="unknown")
 command_action = ContextVar("lockbot_command_action", default=None)
 command_initiator = ContextVar("lockbot_command_initiator", default=None)
 command_correlation = ContextVar("lockbot_command_correlation", default=None)
+command_chat_id = ContextVar("lockbot_command_chat_id", default=None)
+resource_command_transaction = ContextVar("lockbot_resource_command_transaction", default=None)
 
 # Optional backend-owned telemetry sink. Core remains usable without the backend.
 operation_observer = None

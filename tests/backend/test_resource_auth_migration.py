@@ -59,7 +59,15 @@ class TestUpgrade:
         app_main._migrate_identity_boundaries()
         app_main._migrate_identity_boundaries()
         with file_engine.connect() as conn:
-            assert conn.execute(text("SELECT * FROM resource_bindings")).one() == (7, "existing-digest", 0, None, 0)
+            binding = conn.execute(text("SELECT * FROM resource_bindings")).mappings().one()
+            assert dict(binding) == {
+                "id": 7,
+                "credential_digest": "existing-digest",
+                "bound_identity_revision": 0,
+                "credential_encrypted": None,
+                "credential_generation": 0,
+                "confirmed_chat_id": None,
+            }
             assert conn.execute(text("SELECT * FROM bot_migrations")).one() == (3, None)
 
     def test_binding_table_is_created_on_a_database_without_it(self, file_engine):
@@ -120,6 +128,7 @@ class TestSchemaShape:
             "external_user_id",
             "bound_bot_id",
             "bound_bot_uuid",
+            "confirmed_chat_id",
             "credential_digest",
             "issued_at",
             "credential_expires_at",

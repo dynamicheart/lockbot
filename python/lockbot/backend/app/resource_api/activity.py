@@ -3,37 +3,48 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import logging
-import re
+import threading
 import time
-import unicodedata
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
-from urllib.parse import unquote
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, and_, case, delete, func, or_, select, tuple_
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    and_,
+    case,
+    delete,
+    func,
+    literal,
+    or_,
+    select,
+    tuple_,
+    union_all,
+)
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from lockbot.backend.app.auth.dependencies import get_current_user
+from lockbot.backend.app.auth.dependencies import get_current_user, require_super_admin
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import Base, get_db
+from lockbot.backend.app.resource_api.event_log import event_for_request, write_event
 from lockbot.backend.app.resource_api.privacy import audit_private_read, private_task_view
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/bots", tags=["bots"])
+router = APIRouter(tags=["bots"])
 AGENT_ACTIVITY_WINDOW_SECONDS = 3600
 AGENT_ACTIVITY_RETENTION = timedelta(days=30)
 MAX_TRACKED_LABELS = 32
-_MIN_ACTIVITY_UPDATE = timedelta(seconds=30)
-_SECRET_LABEL = re.compile(
-    r"\b(?:lbr_|lbk_|lb[ac]1\.|lbv1\.|Bearer\s+)|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
-    r"|/#/r/[0-9]+/[A-Za-z0-9_-]{22}",
-    re.IGNORECASE,
-)
+_COUNTERS = ("read_requests", "write_requests", "refused_requests", "limited_requests")
 
 
 class AgentActivity(Base):
@@ -46,6 +57,90 @@ class AgentActivity(Base):
     limited_requests: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_status: Mapped[int] = mapped_column(Integer, nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class V2AgentActivity(Base):
+    __tablename__ = "agent_v2_activity"
+
+    principal_id: Mapped[str] = mapped_column(ForeignKey("agent_v2_credentials.public_id"), primary_key=True)
+    read_requests: Mapped[int] = mapped_column(Integer, nullable=False)
+    write_requests: Mapped[int] = mapped_column(Integer, nullable=False)
+    refused_requests: Mapped[int] = mapped_column(Integer, nullable=False)
+    limited_requests: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_status: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class V2ActivityRecorder:
+    """Write completed requests in batches and keep database I/O off the v2 request path."""
+
+    def __init__(self, engine):
+        self.engine = engine
+        self._pending = {}
+        self._lock = threading.Lock()
+        self._flush_lock = threading.Lock()
+        self._stop = asyncio.Event()
+
+    def record(self, principal_id, method, status):
+        row = {
+            "principal_id": principal_id,
+            "read_requests": int(method in {"GET", "HEAD"}),
+            "write_requests": int(method not in {"GET", "HEAD"}),
+            "refused_requests": int(status >= 400),
+            "limited_requests": int(status == 429),
+            "last_status": status,
+            "last_seen_at": _utcnow(),
+        }
+        with self._lock:
+            self._merge(row)
+
+    def _merge(self, row):
+        previous = self._pending.setdefault(row["principal_id"], row)
+        if previous is row:
+            return
+        for field in _COUNTERS:
+            previous[field] += row[field]
+        if previous["last_seen_at"] <= row["last_seen_at"]:
+            previous.update(last_seen_at=row["last_seen_at"], last_status=row["last_status"])
+
+    def flush(self):
+        with self._flush_lock:
+            with self._lock:
+                pending, self._pending = self._pending, {}
+            if not pending:
+                return
+            statement = insert(V2AgentActivity)
+            incoming = statement.excluded
+            statement = statement.on_conflict_do_update(
+                index_elements=[V2AgentActivity.principal_id],
+                set_={
+                    **{key: getattr(V2AgentActivity, key) + getattr(incoming, key) for key in _COUNTERS},
+                    "last_status": case(
+                        (V2AgentActivity.last_seen_at <= incoming.last_seen_at, incoming.last_status),
+                        else_=V2AgentActivity.last_status,
+                    ),
+                    "last_seen_at": func.max(V2AgentActivity.last_seen_at, incoming.last_seen_at),
+                },
+            )
+            try:
+                with self.engine.begin() as conn:
+                    conn.execute(statement, list(pending.values()))
+            except SQLAlchemyError:
+                with self._lock:
+                    for row in pending.values():
+                        self._merge(row)
+                logger.warning("Could not persist batched Agent v2 counters")
+
+    async def run(self):
+        while True:
+            with suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self._stop.wait(), timeout=5)
+            await asyncio.to_thread(self.flush)
+            if self._stop.is_set():
+                return
+
+    def stop(self):
+        self._stop.set()
 
 
 class AgentLabelActivity(Base):
@@ -62,83 +157,11 @@ class AgentLabelActivity(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
-def _normalized_label(value):
-    value = unicodedata.normalize("NFC", value)
-    if any(unicodedata.category(char) in {"Cc", "Cf", "Cs", "Zl", "Zp"} for char in value):
-        return None
-    value = value.strip()
-    return value if 1 <= len(value) <= 64 and not _SECRET_LABEL.search(value) else None
-
-
-def _activity_label(request, event):
-    headers = request.headers.getlist("X-Lockbot-Agent-Label")
-    if headers:
-        if len(headers) != 1:
-            return None
-        value = headers[0]
-        if not value or len(value) > 768 or not value.isascii() or re.search(r"%(?![0-9A-Fa-f]{2})", value):
-            return None
-        try:
-            return _normalized_label(unquote(value, errors="strict"))
-        except UnicodeError:
-            return None
-    label = event.get("agent_label") if event else None
-    return "" if label is None else _normalized_label(label)
-
-
-def _client_ip(request):
-    # ASGI supplies the peer (or the server's explicitly trusted proxy result).
-    # Untrusted forwarding headers do not supply a second observation.
-    try:
-        host = request.client.host if request.client else ""
-        return str(ipaddress.ip_address(host)) if "%" not in host else None
-    except ValueError:
-        return None
-
-
-def _write_label_activity(db, actor, label, client_ip, observed_at):
-    # The aggregate write already holds SQLite's write lock. Recheck the exact
-    # binding generation before touching detail and keep the bound in this transaction.
-    binding = db.get(ResourceBinding, actor.binding_record_id)
-    if binding is None or binding.public_id != actor.binding_public_id:
-        return
-    bot = db.get(Bot, actor.bot_id)
-    if (
-        bot is None
-        or bot.is_deleted
-        or not bot.resource_auth_enabled
-        or binding.credential_generation != actor.credential_generation
-        or not db.scalar(select(valid_binding_filter(bot, _utcnow())).where(ResourceBinding.id == binding.id))
-    ):
-        return
-    record = AgentLabelActivity
-    current = db.get(record, (binding.id, label))
-    if current is not None and (
-        current.last_seen_at > observed_at
-        or (current.last_observed_ip == client_ip and current.last_seen_at > observed_at - _MIN_ACTIVITY_UPDATE)
-    ):
-        return
-    if current is None:
-        db.add(record(binding_id=binding.id, agent_label=label, last_observed_ip=client_ip, last_seen_at=observed_at))
-        if label:
-            db.flush()
-            overflow = (
-                select(record.agent_label)
-                .where(record.binding_id == binding.id, record.agent_label != "")
-                .order_by(record.last_seen_at.desc(), record.agent_label)
-                .offset(MAX_TRACKED_LABELS)
-            )
-            db.execute(delete(record).where(record.binding_id == binding.id, record.agent_label.in_(overflow)))
-    else:
-        current.last_observed_ip = client_ip
-        current.last_seen_at = observed_at
-
-
 def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _record(engine, actor, kind, status, label, client_ip, observed_at):
+def _record(engine, actor, kind, status, observed_at):
     values = {
         "binding_id": actor.binding_record_id,
         "read_requests": int(kind == "read"),
@@ -166,12 +189,6 @@ def _record(engine, actor, kind, status, label, client_ip, observed_at):
                 },
             )
             db.execute(statement)
-            if label is not None and 200 <= status < 400:
-                try:
-                    with db.begin_nested():
-                        _write_label_activity(db, actor, label, client_ip, observed_at)
-                except Exception:
-                    logger.exception("Agent label activity write failed for binding %s", actor.binding_record_id)
             db.commit()
     except Exception:
         logger.exception("Agent activity write failed for binding %s", actor.binding_record_id)
@@ -188,38 +205,39 @@ def install_activity_middleware(app):
             return response
         finally:
             duration_ms = (time.monotonic() - started) * 1000
+            principal = getattr(request.state, "v2_activity_principal", None)
+            recorder = getattr(request.app.state, "v2_agent_activity", None)
+            if principal is not None and recorder is not None:
+                recorder.record(principal, request.method, status)
             actor = getattr(request.state, "resource_actor", None)
             engine = getattr(request.state, "resource_activity_engine", None)
-            if actor is not None:
-                from lockbot.backend.app.resource_api.event_log import event_for_request, write_event
-
-                event = event_for_request(request)
-                if engine is not None:
-                    kind = getattr(
-                        request.state, "resource_activity_kind", "read" if request.method == "GET" else "write"
-                    )
-                    await asyncio.to_thread(
-                        _record,
-                        engine,
-                        actor,
-                        kind,
-                        status,
-                        _activity_label(request, event),
-                        _client_ip(request),
-                        _utcnow(),
-                    )
-                if event is not None:
-                    await asyncio.to_thread(
-                        write_event, actor=actor, event=event, status=status, duration_ms=duration_ms
-                    )
+            if actor is not None and engine is not None:
+                kind = getattr(request.state, "resource_activity_kind", "read" if request.method == "GET" else "write")
+                await asyncio.to_thread(_record, engine, actor, kind, status, _utcnow())
+            event_actor = actor or getattr(request.state, "v2_event_actor", None)
+            if event_actor is not None and (event := event_for_request(request)) is not None:
+                await asyncio.to_thread(
+                    write_event,
+                    actor=event_actor,
+                    event=event,
+                    status=status,
+                    duration_ms=duration_ms,
+                    source_ip=request.client.host if request.client else None,
+                )
 
 
 def valid_binding_filter(bot, now):
-    from lockbot.core.platforms.registry import normalize_platform_name
+    from lockbot.core.platforms.registry import DEFAULT_PLATFORM, normalize_platform_name
 
+    # The service-wide inventory compares against joined bot rows.
+    platform = (
+        func.coalesce(func.nullif(func.lower(func.trim(Bot.platform)), ""), DEFAULT_PLATFORM)
+        if bot is Bot
+        else normalize_platform_name(bot.platform)
+    )
     return func.coalesce(
         and_(
-            ResourceBinding.platform == normalize_platform_name(bot.platform),
+            ResourceBinding.platform == platform,
             ResourceBinding.bound_bot_id == bot.id,
             ResourceBinding.bound_bot_uuid == bot.uuid,
             ResourceBinding.bound_identity_revision == bot.identity_revision,
@@ -340,7 +358,7 @@ def agent_summary(db, bots):
     return totals
 
 
-@router.get("/{bot_id}/agent-summary")
+@router.get("/api/bots/{bot_id}/agent-summary")
 def get_agent_summary(
     bot_id: int, response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
@@ -351,7 +369,49 @@ def get_agent_summary(
     return agent_summary(db, [bot])
 
 
-@router.get("/{bot_id}/agent-activity")
+def v2_agent_grants(now):
+    from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
+    from lockbot.backend.app.resource_api.v2.binding import PersonalCredential, PersonalGrant
+
+    platform = func.lower(Bot.platform)
+    grant_valid = func.coalesce(
+        and_(
+            Bot.is_deleted.is_(False),
+            Bot.resource_auth_enabled.is_(True),
+            PersonalGrant.bot_uuid == Bot.uuid,
+            PersonalGrant.bot_revision == Bot.identity_revision,
+            or_(Bot.binding_accept_after.is_(None), PersonalGrant.confirmed_at > Bot.binding_accept_after),
+            platform == PersonalCredential.platform,
+            or_(
+                and_(platform == "infoflow", PersonalCredential.namespace == "infoflow"),
+                and_(platform == "feishu", PersonalCredential.namespace == "feishu:" + FeishuApplication.app_id),
+            ),
+        ),
+        False,
+    )
+    expired = and_(
+        PersonalCredential.credential_expires_at.is_not(None), PersonalCredential.credential_expires_at <= now
+    )
+    query = (
+        select(
+            PersonalGrant.principal_id,
+            and_(grant_valid, ~expired).label("active"),
+        )
+        .select_from(PersonalGrant)
+        .join(PersonalCredential, PersonalCredential.public_id == PersonalGrant.principal_id)
+        .join(Bot, Bot.id == PersonalGrant.bot_id)
+        .outerjoin(FeishuGroupRoute, and_(FeishuGroupRoute.bot_id == Bot.id, FeishuGroupRoute.chat_id == Bot.group_id))
+        .outerjoin(FeishuApplication, FeishuApplication.id == FeishuGroupRoute.application_id)
+    )
+    return query
+
+
+def count_v2_agent_tokens(db, now):
+    grants = v2_agent_grants(now).subquery()
+    return db.scalar(select(func.count(func.distinct(grants.c.principal_id))).where(grants.c.active)) or 0
+
+
+@router.get("/api/bots/{bot_id}/agent-activity")
 def get_agent_activity(
     bot_id: int,
     response: Response,
@@ -421,3 +481,82 @@ def get_agent_activity(
     if private and items:
         audit_private_read(db, user, bot_id=bot_id, surface="management.agent_activity")
     return dict(bot_id=bot_id, total=total, page=page, limit=limit, items=items)
+
+
+@router.get("/api/admin/agent-activity")
+def get_service_agent_activity(
+    response: Response,
+    status: str = Query("active", pattern="^(active|history|all)$"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    include_legacy: bool = False,
+    version: Literal["v1", "v2"] | None = None,
+    _user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.resource_api.v2.binding import PersonalCredential
+
+    response.headers["Cache-Control"] = "no-store"
+    now = _utcnow()
+    grants = v2_agent_grants(now).subquery()
+    active = (
+        select(grants.c.principal_id)
+        .where(grants.c.active, grants.c.principal_id == PersonalCredential.public_id)
+        .exists()
+    )
+    query = (
+        select(
+            literal("v2").label("version"),
+            literal(None, type_=String).label("bot_name"),
+            PersonalCredential.public_id.label("sort_key"),
+            PersonalCredential.platform,
+            PersonalCredential.external_user_id,
+            active.label("active"),
+            and_(
+                PersonalCredential.credential_expires_at.is_not(None), PersonalCredential.credential_expires_at <= now
+            ).label("expired"),
+            *(func.coalesce(getattr(V2AgentActivity, key), 0).label(key) for key in _COUNTERS),
+            V2AgentActivity.last_seen_at,
+        )
+        .select_from(PersonalCredential)
+        .outerjoin(V2AgentActivity, V2AgentActivity.principal_id == PersonalCredential.public_id)
+    )
+    if version == "v1" or (version is None and include_legacy):
+        legacy = (
+            select(
+                literal("v1").label("version"),
+                Bot.name.label("bot_name"),
+                ResourceBinding.public_id.label("sort_key"),
+                ResourceBinding.platform,
+                ResourceBinding.external_user_id,
+                valid_binding_filter(Bot, now).label("active"),
+                and_(
+                    ResourceBinding.credential_expires_at.is_not(None),
+                    ResourceBinding.credential_expires_at <= now,
+                ).label("expired"),
+                *(func.coalesce(getattr(AgentActivity, key), 0).label(key) for key in _COUNTERS),
+                AgentActivity.last_seen_at,
+            )
+            .select_from(ResourceBinding)
+            .outerjoin(Bot, Bot.id == ResourceBinding.bound_bot_id)
+            .outerjoin(AgentActivity, AgentActivity.binding_id == ResourceBinding.id)
+        )
+        query = legacy if version == "v1" else union_all(query, legacy)
+    tokens = query.subquery()
+    filtered = select(tokens)
+    if status != "all":
+        filtered = filtered.where(tokens.c.active if status == "active" else ~tokens.c.active)
+    total = db.scalar(select(func.count()).select_from(filtered.subquery()))
+    rows = db.execute(
+        filtered.order_by(tokens.c.last_seen_at.desc().nulls_last(), tokens.c.version, tokens.c.sort_key)
+        .offset((page - 1) * limit)
+        .limit(limit)
+    ).mappings()
+    items = []
+    for index, row in enumerate(rows):
+        item = dict(row, row_key=f"{page}:{index}")
+        item.pop("sort_key")
+        if not include_legacy and version != "v1":
+            item.pop("bot_name")
+        items.append(item)
+    return {"total": total, "page": page, "limit": limit, "items": items}

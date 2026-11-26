@@ -48,18 +48,18 @@ def test_agent_section_and_footer_link_order(tmp_path):
     assert "Agent 自动申请资源：" not in text
 
 
-def test_personal_panel_promotion_only_on_explicit_help(tmp_path):
+def test_explicit_help_omits_the_personal_panel_promotion(tmp_path):
+    panel_url = "https://example.test/#/me"
+    skill_url = "https://example.test/api/agent/v2/skill/lockbot.zip"
     bot = NodeBot(
         config_dict={
             "BOT_ID": "panel-help",
             "DATA_DIR": str(tmp_path),
             "CLUSTER_CONFIGS": ["n1"],
-            "_PERSONAL_PANEL_URL": lambda: "https://example.test/#/me",
+            "_PERSONAL_PANEL_URL": lambda: panel_url,
+            "_AGENT_SKILL_URL": lambda: skill_url,
         }
     )
     reply = bot.adapter.extract_reply_text(bot.print_help("alice"))
-    assert "我的资源" in reply and "已完成 IM 绑定的 Agent" in reply
-    assert "https://example.test/#/me" in reply
-    assert "https://example.test/#/me" not in bot.adapter.extract_reply_text(bot.print_help("alice", "invalid"))
-    bot.config.set_val("_PERSONAL_PANEL_URL", lambda: "")
-    assert "https://example.test/#/me" not in bot.adapter.extract_reply_text(bot.print_help("alice"))
+    assert skill_url in reply and "bind <" in reply
+    assert panel_url not in reply and "首次使用或换设备" not in reply

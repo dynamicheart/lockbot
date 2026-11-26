@@ -6,10 +6,7 @@ from contextlib import suppress
 
 from lockbot.core.command_result import completed_reply
 from lockbot.core.i18n import t
-from lockbot.core.io import (
-    log_to_file,
-    save_bot_state_to_file,
-)
+from lockbot.core.io import log_to_file
 from lockbot.core.node_bot import NodeBot
 from lockbot.core.utils import (
     create_user_info,
@@ -27,7 +24,7 @@ class QueueBot(NodeBot):
     """
 
     def supported_commands(self):
-        return ["lock", "unlock", "free", "kickout", "kicklock", "help", "h", "book", "take", "query", "alias"]
+        return ["lock", "unlock", "free", "kickout", "kicklock", "help", "h", "book", "take", "query", "label", "alias"]
 
     def lock(self, user_id, command, *, acquisition_limit=None):
         """
@@ -38,8 +35,6 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
@@ -66,32 +61,16 @@ class QueueBot(NodeBot):
                 )
 
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
             delayed = set()
             group_recipients = set()
 
-            if max_dur > 0 and user_id not in whitelist:
-                for node in nodes:
-                    booking_info = find_user_info(node["booking_list"], user_id)
-                    if not command_has_duration and booking_info:
-                        check_duration = booking_info["duration"]
-                    else:
-                        check_duration = duration
-                    user_info = find_user_info(node["current_users"], user_id)
-                    if user_info:
-                        check_duration += user_info["duration"]
-                        start_time = user_info["start_time"]
-                    else:
-                        start_time = timestamp
-                    if remaining_duration(start_time, check_duration) > max_dur:
-                        return self.show_error(
-                            user_id,
-                            t(
-                                "error.lock_max_duration_exceeded",
-                                config=self.config,
-                                max_duration=format_duration(max_dur, config=self.config),
-                                whitelist_hint=self._whitelist_hint(),
-                            ),
-                        )
+            for node in nodes:
+                holder = find_user_info(node["current_users"], user_id)
+                booking = find_user_info(node["booking_list"], user_id)
+                requested = booking["duration"] if booking and not command_has_duration else duration
+                if limit.rejects(holder, requested):
+                    return limit.error(self, user_id, holder)
 
             for node in nodes:
                 node["status"] = "exclusive"
@@ -116,6 +95,7 @@ class QueueBot(NodeBot):
 
                 user_info["duration"] = total_duration
                 user_info["is_notified"] = False
+                limit.record(user_info)
                 node["current_users"] = [user_info]
 
             observed_at = int(time.time())
@@ -148,8 +128,6 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
@@ -163,17 +141,10 @@ class QueueBot(NodeBot):
                 return self.show_error(user_id, self._msg_with_usage("error.already_locked", sep="\n"))
 
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
 
-            if max_dur > 0 and user_id not in whitelist and duration > max_dur:
-                return self.show_error(
-                    user_id,
-                    t(
-                        "error.lock_max_duration_exceeded",
-                        config=self.config,
-                        max_duration=format_duration(max_dur, config=self.config),
-                        whitelist_hint=self._whitelist_hint(),
-                    ),
-                )
+            if limit.rejects(None, duration):
+                return limit.error(self, user_id)
 
             for node in nodes:
                 user_info = create_user_info(user_id, duration, timestamp, config=self.config)
@@ -192,8 +163,6 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             resources = self._resource_state()
             nodes = [resources[node_key] for node_key in node_keys]
@@ -204,18 +173,11 @@ class QueueBot(NodeBot):
                 return self.show_error(user_id, self._msg_with_usage("error.locked_user_cannot_take", sep="\n"))
 
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
             users_to_notify = set()
             users_to_notify.add(user_id)
-            if max_dur > 0 and user_id not in whitelist and remaining_duration(timestamp, duration) > max_dur:
-                return self.show_error(
-                    user_id,
-                    t(
-                        "error.lock_max_duration_exceeded",
-                        config=self.config,
-                        max_duration=format_duration(max_dur, config=self.config),
-                        whitelist_hint=self._whitelist_hint(),
-                    ),
-                )
+            if limit.rejects(None, duration):
+                return limit.error(self, user_id)
 
             requested = set(node_keys)
             affected_resources = {key: node for key, node in resources.items() if key in requested}
@@ -237,6 +199,7 @@ class QueueBot(NodeBot):
                 for other_user in reversed(others):
                     rem_dur = remaining_duration(other_user["start_time"], other_user["duration"])
                     if rem_dur > 0:
+                        other_user.pop("overnight_cutoff", None)
                         other_user["start_time"] = timestamp
                         other_user["duration"] = rem_dur
                         other_user["is_notified"] = False
@@ -248,6 +211,7 @@ class QueueBot(NodeBot):
 
                 user_info["duration"] = total_duration
                 user_info["is_notified"] = False
+                limit.record(user_info)
                 node["current_users"] = [user_info]
 
             observed_at = int(time.time())
@@ -430,11 +394,11 @@ class QueueBot(NodeBot):
         state_changed = False
         alerts = []
         auto_locked = []
+        ended = []
         user_ids = set()
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
         auto_lock = self.config.get_val("QUEUE_AUTO_LOCK")
-        max_duration = self.config.get_val("MAX_LOCK_DURATION")
 
         TIME_TO_LOCK = 5 * 60
 
@@ -471,6 +435,14 @@ class QueueBot(NodeBot):
                         if remaining_time <= 0:
                             removed_users_id.append(user_info["user_id"])
                             state_changed = True
+                            ended.append(
+                                (
+                                    node_key,
+                                    user_info["user_id"],
+                                    "holding_expired",
+                                    user_info["start_time"] + user_info["duration"],
+                                )
+                            )
 
                             # Send expiry notification only if early warning was never sent.
                             # When EARLY_NOTIFY=True and warning fired on time, is_notified=True → silent release.
@@ -497,8 +469,19 @@ class QueueBot(NodeBot):
                     first_book_user = node["booking_list"][0]
                     now = int(time.time())
 
-                    if first_book_user.get("is_notified") and now - first_book_user["start_time"] >= TIME_TO_LOCK:
+                    timed_out = (
+                        first_book_user.get("is_notified") and now - first_book_user["start_time"] >= TIME_TO_LOCK
+                    )
+                    if timed_out:
                         node["booking_list"].pop(0)
+                        ended.append(
+                            (
+                                node_key,
+                                first_book_user["user_id"],
+                                "booking_timed_out",
+                                first_book_user["start_time"] + TIME_TO_LOCK,
+                            )
+                        )
                         if self._include_group_reminder(first_book_user):
                             expired_users.append((first_book_user["user_id"], node_key))
                             user_ids.add(first_book_user["user_id"])
@@ -509,9 +492,12 @@ class QueueBot(NodeBot):
                     if auto_lock:
                         user_id = first_book_user["user_id"]
                         duration = first_book_user["duration"]
-                        if max_duration > 0 and user_id not in self._duration_whitelist:
-                            duration = min(duration, max_duration)
+                        limit = self._lease_limit_locked(user_id, now)
+                        maximum = limit.remaining_limit
+                        if maximum > 0:
+                            duration = min(duration, maximum)
                         holding = create_user_info(user_id, duration, now, config=self.config)
+                        limit.record(holding)
                         holding["source"] = first_book_user.get("source", "unknown")
                         node["booking_list"].pop(0)
                         node["current_users"] = [holding]
@@ -520,12 +506,12 @@ class QueueBot(NodeBot):
                         if holding["source"] == "chat":
                             auto_locked.append((node_key, user_id, duration))
                             user_ids.add(user_id)
-                    elif not first_book_user.get("is_notified"):
+                    elif timed_out or not first_book_user.get("is_notified"):
                         notify_first_booking_user(node_key, node, now)
 
             pending = self._pending_booking_rows(pending_keys)
             if state_changed:
-                save_bot_state_to_file(self.state.bot_state, config=self.config)
+                self._persist_state(ended=ended)
 
             # Compute next wakeup after mutations
             min_next = float("inf")
@@ -560,6 +546,8 @@ class QueueBot(NodeBot):
             content += "\n"
         if queue_advanced and (expired_users or pending):
             content += self._render_booking_reminder(expired_users, pending, TIME_TO_LOCK)
+        elif auto_lock and expired_users:
+            content += self._render_booking_expirations(expired_users)
         if content:
             msg = self.adapter.build_reply(content, list(user_ids))
             try:
@@ -584,6 +572,12 @@ class QueueBot(NodeBot):
             rows.append((key, user["user_id"], user["duration"]))
         return rows
 
+    def _render_booking_expirations(self, expired_users):
+        text = t("notify.booking_expired_header", config=self.config)
+        for user_id, node_key in expired_users:
+            text += t("notify.booking_timeout_cancelled", config=self.config, user_id=user_id, node_key=node_key)
+        return text + "\n"
+
     def _render_booking_reminder(self, expired_users, pending, claim_seconds):
         text = t(
             "notify.resource_available_header",
@@ -591,10 +585,7 @@ class QueueBot(NodeBot):
             timeout=format_duration(claim_seconds, config=self.config),
         )
         if expired_users:
-            text += t("notify.booking_expired_header", config=self.config)
-            for user_id, node_key in expired_users:
-                text += t("notify.booking_timeout_cancelled", config=self.config, user_id=user_id, node_key=node_key)
-            text += "\n"
+            text += self._render_booking_expirations(expired_users)
         if pending:
             text += t("notify.pending_bookings_header", config=self.config)
             for key, user_id, seconds in pending:
@@ -619,8 +610,8 @@ class QueueBot(NodeBot):
             for key, node in self._usage_rows(resources)
         )
 
-    def _current_usage(self, node_filter=None):
-        rows = self._capture_usage_rows(self._resource_state())
+    def _current_usage(self, node_filter=None, *, state=None):
+        rows = self._capture_usage_rows(self._resource_state(state))
         return self._render_usage(rows, node_filter)
 
     def _render_usage(self, rows, node_filter=None, *, observed_at=None):

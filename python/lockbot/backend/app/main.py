@@ -25,7 +25,6 @@ import lockbot.backend.app.platform_applications.service  # noqa: F401
 import lockbot.backend.app.resource_auth.models  # noqa: F401
 import lockbot.backend.app.settings.models  # noqa: F401
 from lockbot.backend.app.admin.router import router as admin_router
-from lockbot.backend.app.audit.delegation import router as audit_delegation_router
 from lockbot.backend.app.audit.router import router as audit_router
 from lockbot.backend.app.auth.router import router as auth_router
 from lockbot.backend.app.backup.router import router as backup_router
@@ -40,9 +39,6 @@ from lockbot.backend.app.resource_api.commands import router as resource_command
 from lockbot.backend.app.resource_api.operator import router as operator_router
 from lockbot.backend.app.resource_api.resources import agent_router as agent_resources_router
 from lockbot.backend.app.resource_api.resources import router as resources_router
-from lockbot.backend.app.resource_api.skill import router as skill_router
-from lockbot.backend.app.resource_api.usage import agent_router as agent_usage_router
-from lockbot.backend.app.resource_api.usage import router as usage_router
 from lockbot.backend.app.resource_auth.router import router as resource_auth_router
 from lockbot.backend.app.settings.router import router as settings_router
 from lockbot.backend.app.static import SPAStaticFiles
@@ -263,7 +259,7 @@ def _migrate_bots_node_metadata():
     from sqlalchemy import text
 
     columns = {column["name"] for column in sa_inspect(engine).get_columns("bots")}
-    for name in ("node_access_config", "node_hardware_config"):
+    for name in ("node_access_config", "node_hardware_config", "node_inventory_config"):
         if name not in columns:
             with engine.begin() as conn:
                 conn.execute(text(f"ALTER TABLE bots ADD COLUMN {name} TEXT"))
@@ -366,6 +362,7 @@ def _migrate_identity_boundaries():
             "bound_identity_revision": "INTEGER NOT NULL DEFAULT 0",
             "credential_encrypted": "TEXT",
             "credential_generation": "INTEGER NOT NULL DEFAULT 0",
+            "confirmed_chat_id": "VARCHAR(128)",
         },
         "bot_migrations": {"metrics_wait_seconds": "INTEGER"},
     }
@@ -526,6 +523,11 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         restore_proxy(db)
 
+    from lockbot.backend.app.resource_api.idle_observation import configured_observer
+
+    observer = configured_observer(bot_manager)
+    app.state.idle_observer = observer
+    bot_manager.idle_confirmation_hook = getattr(observer, "confirm_chat", None)
     bot_manager.start_scheduler()
     _reset_running_bots()
 
@@ -538,16 +540,26 @@ async def lifespan(app: FastAPI):
     backup_scheduler.start()
 
     from lockbot.backend.app.broadcast.service import broadcast_worker
+    from lockbot.backend.app.resource_api.activity import V2ActivityRecorder
     from lockbot.backend.app.resource_api.notifications import notification_budget
     from lockbot.backend.app.resource_api.usage_cleanup import usage_cleanup_loop
 
     notification_budget.start()
     broadcast_worker.start()
     usage_cleanup = asyncio.create_task(usage_cleanup_loop())
+    idle_observation = asyncio.create_task(observer.run()) if observer else None
+    app.state.v2_agent_activity = V2ActivityRecorder(engine)
+    agent_activity_flush = asyncio.create_task(app.state.v2_agent_activity.run())
     app.state.service_history.start()
     try:
         yield
     finally:
+        app.state.v2_agent_activity.stop()
+        await agent_activity_flush
+        if idle_observation is not None:
+            idle_observation.cancel()
+            with suppress(asyncio.CancelledError):
+                await idle_observation
         usage_cleanup.cancel()
         with suppress(asyncio.CancelledError):
             await usage_cleanup
@@ -557,6 +569,7 @@ async def lifespan(app: FastAPI):
         broadcast_worker.stop()
         backup_scheduler.stop()
         bot_manager.shutdown_all()
+        bot_manager.idle_confirmation_hook = None
         await asyncio.to_thread(app.state.service_history.stop)
         reports = getattr(app.state, "agent_personal_reports", None)
         if reports is not None:
@@ -692,9 +705,10 @@ def create_app() -> FastAPI:
     from lockbot.backend.app.deployment import install_health_endpoint
 
     install_activity_middleware(app)
-    from lockbot.backend.app.resource_api.ingress import AgentIngressMiddleware
+    from lockbot.backend.app.resource_api.ingress import AgentIngressMiddleware, IngressBudget
 
-    app.add_middleware(AgentIngressMiddleware)
+    app.state.agent_ingress_budget = IngressBudget()
+    app.add_middleware(AgentIngressMiddleware, budget=app.state.agent_ingress_budget)
     install_health_endpoint(app)
     from lockbot.backend.app.resource_api.errors import install_agent_validation_errors
     from lockbot.backend.app.resource_api.versioning import AgentVersionMiddleware
@@ -771,21 +785,21 @@ def create_app() -> FastAPI:
     app.include_router(platform_applications_router)
     # Dedicated note-delegation contracts belong to administrator documentation.
     # Keep the authenticated routes unchanged, but omit them from anonymous schemas.
-    app.include_router(audit_delegation_router, include_in_schema=False)
     app.include_router(configuration_delegation_router)
     app.include_router(backup_router)
     from lockbot.backend.app.resource_api.discovery import router as discovery_router
+    from lockbot.backend.app.resource_api.rate_contract import describe_agent_rate
+    from lockbot.backend.app.resource_api.v2 import commands, identity_tickets, metrics, resources, watch  # noqa: F401
+    from lockbot.backend.app.resource_api.v2.binding import router as agent_v2_router
 
     app.include_router(discovery_router)
+    app.include_router(agent_v2_router)
     app.include_router(resource_auth_router)
     app.include_router(agent_resources_router)
     app.include_router(agent_commands_router)
-    app.include_router(agent_usage_router)
     app.include_router(resource_commands_router)
     app.include_router(resources_router)
-    app.include_router(usage_router)
     app.include_router(activity_router)
-    app.include_router(skill_router)
     app.include_router(operator_router)
     from lockbot.backend.app.resource_api.views import router as view_router
 
@@ -817,7 +831,6 @@ def create_app() -> FastAPI:
                 "Agent 绑定": "binding",
                 "OP API": "op",
                 "Configuration API": "configuration",
-                "Skill 下载": "agent_download",
             }
             if scope is not None
             else {}
@@ -840,8 +853,6 @@ def create_app() -> FastAPI:
                         section, group, scheme = "op", "OP API", "OpApiKey"
                     elif path.startswith("/api/resource-auth/"):
                         section, group, scheme = "agent", "Agent 绑定", None
-                    elif path.startswith("/api/agent-skill"):
-                        section, group, scheme = "agent", "Skill 下载", None
                     else:
                         section, group, scheme = "agent", "Agent API", "AgentKey"
                     if scope is not None and section != scope:
@@ -851,6 +862,8 @@ def create_app() -> FastAPI:
                         used_schemes.add(scheme)
                     detail["tags"] = [localized_titles.get(group, group)]
                     detail["security"] = [{scheme: []}] if scheme else []
+                    if section == "agent":
+                        describe_agent_rate(path, method, detail, lang=lang)
                     if path == "/api/agent/resources" and method == "get":
                         commands = (
                             "```sh\n"
@@ -917,10 +930,6 @@ def create_app() -> FastAPI:
                         "按选定的机器人和权限读取、预览并提交节点连接或数据源配置。"
                     ),
                 },
-                {
-                    "name": "Skill 下载",
-                    "description": ("公开下载入口，无需 API key。先把 skill 链接交给 Agent，再由用户完成绑定。"),
-                },
             ],
             "paths": public_paths,
             "components": {
@@ -975,10 +984,15 @@ def create_app() -> FastAPI:
 
         lang = public_docs_language(request)
         title = escape(t("public_docs.title", lang=lang))
-        entries = []
+        v2_description = "Bind, query and operate resources." if lang == "en" else "绑定、查询和操作资源。"
+        entries = [f'<li><a href="/api/public-docs/agent-v2">Agent API v2</a><p>{v2_description}</p></li>']
         for scope in public_doc_sections:
-            label = escape(t(f"public_docs.{scope}.title", lang=lang))
-            description = escape(t(f"public_docs.{scope}.description", lang=lang))
+            label = "Agent API v1" if scope == "agent" else escape(t(f"public_docs.{scope}.title", lang=lang))
+            if scope == "agent":
+                label = f"<s>{label}</s>"
+                description = "Legacy reference" if lang == "en" else "旧版参考"
+            else:
+                description = escape(t(f"public_docs.{scope}.description", lang=lang))
             entries.append(f'<li><a href="/api/public-docs/{scope}">{label}</a><p>{description}</p></li>')
         schema_label = escape(t("public_docs.schema", lang=lang))
         return HTMLResponse(
@@ -995,12 +1009,13 @@ def create_app() -> FastAPI:
     def public_docs_section(request: Request, scope: str):
         from lockbot.core.i18n import t
 
-        if scope not in public_doc_sections:
+        if scope not in (*public_doc_sections, "agent-v2"):
             raise HTTPException(status_code=404)
         lang = public_docs_language(request)
+        is_v2 = scope == "agent-v2"
         page = get_swagger_ui_html(
-            openapi_url=f"/api/public-openapi.json?scope={scope}",
-            title=t(f"public_docs.{scope}.title", lang=lang),
+            openapi_url="/api/agent/v2/openapi.json" if is_v2 else f"/api/public-openapi.json?scope={scope}",
+            title="Agent API v2" if is_v2 else t(f"public_docs.{scope}.title", lang=lang),
             swagger_ui_parameters={"defaultModelsExpandDepth": -1},
         )
         compact_style = """
@@ -1018,14 +1033,50 @@ def create_app() -> FastAPI:
           #swagger-ui .opblock-tag > small p { margin: 4px 0; }
         </style>
         """
+        if scope == "agent":
+            compact_style += """
+            <style>
+              #swagger-ui .info .title,
+              #swagger-ui .opblock-summary-path,
+              #swagger-ui .opblock-summary-description { text-decoration: line-through; }
+            </style>
+            """
+        document = page.body.decode("utf-8").replace("</head>", compact_style + "</head>", 1)
+        if is_v2:
+            quickstart = "HTTP quickstart" if lang == "en" else "HTTP 快速开始"
+            link = f'<a href="/api/public-docs/agent-v2/quickstart">{quickstart}</a>'
+            navigation = f'<nav style="margin:1rem auto;max-width:1320px">{link}</nav>'
+            document = document.replace("<body>", f"<body>{navigation}", 1)
+        return HTMLResponse(document, headers=localized_doc_headers(lang))
+
+    @app.get("/api/public-docs/agent-v2/quickstart", include_in_schema=False)
+    def agent_v2_quickstart(request: Request):
+        from lockbot.backend.app.resource_api.public_tutorials import TUTORIAL_STYLE, agent_tutorial
+
+        lang = public_docs_language(request)
+        reference = "API reference" if lang == "en" else "API 文档"
         return HTMLResponse(
-            page.body.decode("utf-8").replace("</head>", compact_style + "</head>", 1),
+            f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">'
+            f'<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f"<title>LockBot Agent API v2</title>{TUTORIAL_STYLE}</head>"
+            f'<body><main><nav class="agent-tutorial"><a href="/api/public-docs/agent-v2">{reference}</a></nav>'
+            f"{agent_tutorial(2, lang)}</main></body></html>",
             headers=localized_doc_headers(lang),
         )
 
-    from lockbot.backend.app.personal_panel.setup import mount_if_configured
+    @app.get("/api/public-docs/configuration/AGENTS.md", include_in_schema=False)
+    def configuration_agent_guide():
+        from importlib.resources import files
 
-    mount_if_configured(app)
+        body = files("lockbot.backend.app.resource_api").joinpath("configuration_agents.md").read_text(encoding="utf-8")
+        return Response(body, media_type="text/plain")
+
+    @app.api_route("/api/personal-panel", methods=["GET", "HEAD", "POST"], include_in_schema=False)
+    @app.api_route("/api/personal-panel/{path:path}", methods=["GET", "HEAD", "POST"], include_in_schema=False)
+    def retired_personal_panel():
+        raise HTTPException(
+            410, "The personal resource dashboard has been retired.", headers={"Cache-Control": "no-store"}
+        )
 
     trace_review_directory = os.environ.get("LOCKBOT_TRACE_REVIEW_DIR")
     if trace_review_directory:

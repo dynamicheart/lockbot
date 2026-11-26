@@ -23,12 +23,29 @@ BINDING_COMMANDS = ("bind", "unbind", "bindings")
 _CANONICAL_COMMANDS = {
     "free": "unlock",
     "h": "help",
+    "label": "alias",
 }
 
 
 def canonical_command(cmd: str) -> str:
     """Return the canonical command word for a spelling of a command."""
     return _CANONICAL_COMMANDS.get(cmd, cmd)
+
+
+def _dispatch_word(text, supported_commands, cluster_configs):
+    match = re.match(r"^(\w+)", text, re.I)
+    command = match.group(1).lower() if match else ""
+    if not text.strip() or (command not in supported_commands and text in cluster_configs):
+        return "query"
+    return command
+
+
+def is_query_command(text, bot):
+    """Use the same command classification for admission and chat dispatch."""
+    config = getattr(bot, "config", None)
+    cluster = config.get_val("CLUSTER_CONFIGS", {}) if config else {}
+    supported = set(bot.supported_commands())
+    return "query" in supported and _dispatch_word(text, supported, cluster) == "query"
 
 
 def redact_command_text(text):
@@ -108,13 +125,16 @@ def _dispatch_binding_command(user_id, text, bot, cmd, config):
     return adapter.build_reply(reply_text.rstrip() + "\n\n", [user_id])
 
 
-def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisition_limit=None, source="chat"):
+def execute_text_command(
+    user_id, text, bot, allowed_commands=None, *, acquisition_limit=None, source="chat", group_id=None, chat_id=None
+):
     """Set a server-controlled origin while the shared dispatcher executes."""
     import uuid
 
     from lockbot.core.command_context import (
         RESOURCE_OPERATIONS,
         command_action,
+        command_chat_id,
         command_correlation,
         command_initiator,
         command_source,
@@ -135,8 +155,17 @@ def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisiti
         }
     )
     correlation_token = command_correlation.set(uuid.uuid4().hex)
+    group_id = chat_id if chat_id is not None else group_id
+    chat_token = command_chat_id.set(group_id if source == "chat" else None)
     outcome = "dispatched"
     try:
+        keep = getattr(bot, "idle_confirmation_hook", None)
+        if operation == "keep" and source == "chat" and allowed_commands is None and group_id and callable(keep):
+            parts = text.split(None, 1)
+            if len(parts) == 2 and parts[0].lower() == "keep":
+                argument = parts[1]
+                reply = keep(bot, user_id, str(group_id), argument.strip())
+                return _resolve_adapter(bot).build_reply(reply + "\n\n", [user_id])
         return _execute_text_command(user_id, text, bot, allowed_commands, acquisition_limit=acquisition_limit)
     except CommandRejected:
         outcome = "rejected"
@@ -149,6 +178,7 @@ def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisiti
         command_action.reset(action_token)
         command_initiator.reset(actor_token)
         command_correlation.reset(correlation_token)
+        command_chat_id.reset(chat_token)
         if operation in RESOURCE_OPERATIONS and source in {"chat", "api"}:
             try:
                 config = getattr(bot, "config", None)
@@ -192,17 +222,7 @@ def _execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisit
 
     supported_commands = set(bot.supported_commands())
 
-    m = re.match(r"^(\w+)", text, re.I)
-    cmd = m.group(1).lower() if m else ""
-
-    # Only an empty mention is a query. Malformed nonempty input must reach
-    # the existing rejection path rather than silently displaying resource state.
-    if not text.strip():
-        cmd = "query"
-
-    # Treat known node_key as query
-    if cmd not in supported_commands and text in cluster_configs:
-        cmd = "query"
+    cmd = _dispatch_word(text, supported_commands, cluster_configs)
 
     if gated and (
         cmd in BINDING_COMMANDS or canonical_command(cmd) not in {canonical_command(c) for c in allowed_commands}
@@ -239,6 +259,8 @@ def _execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisit
             return bot.query(user_id)
     elif cmd in ("help", "h"):
         return bot.print_help(user_id)
+    elif cmd == "label":
+        return bot.label(user_id, text)
     elif cmd == "alias":
         return bot.alias(user_id, text)
     else:
@@ -252,5 +274,5 @@ def _execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisit
 def execute_command(msg_data, bot):
     """Extract the acting identity and command text from a platform message, then dispatch."""
     adapter = _resolve_adapter(bot)
-    user_id, _group_id, rcv_info = adapter.extract_command(msg_data)
-    return execute_text_command(user_id, rcv_info, bot)
+    user_id, group_id, rcv_info = adapter.extract_command(msg_data)
+    return execute_text_command(user_id, rcv_info, bot, group_id=group_id)

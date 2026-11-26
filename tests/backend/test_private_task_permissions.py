@@ -16,7 +16,7 @@ from sqlalchemy import text
 from backend.test_resource_api_resources import api  # noqa: F401
 
 
-def _register(client, api, monkeypatch):
+def _register(client, api, monkeypatch, seed_legacy_task_details):
     monkeypatch.setattr("lockbot.backend.app.bots.router.bot_manager", api["manager"])
     monkeypatch.setattr("lockbot.backend.app.resource_api.operator.bot_manager", api["manager"])
     response = client.post(
@@ -24,19 +24,18 @@ def _register(client, api, monkeypatch):
         headers=api["headers"],
         json={
             "command": "lock n1 1h",
-            "purpose": "private-project-detail",
-            "agent_label": "private-agent-name",
             "task_category": "operator_testing",
         },
     )
     assert response.status_code == 200
+    seed_legacy_task_details(api, "private-project-detail", "private-agent-name", task_category="operator_testing")
 
 
 @pytest.mark.parametrize("management_role", ["user", "admin", "super_admin"])
 def test_management_state_uses_current_role_not_bot_ownership_or_username(
-    client, api, db_session, monkeypatch, management_role
+    client, api, db_session, monkeypatch, management_role, seed_legacy_task_details
 ):
-    _register(client, api, monkeypatch)
+    _register(client, api, monkeypatch, seed_legacy_task_details)
     user = db_session.get(User, db_session.get(Bot, api["bot_id"]).user_id)
     user.role = management_role
     user.username = "alice"  # Matching an IM user is not a verified identity link.
@@ -72,8 +71,10 @@ def test_helper_does_not_trust_stale_super_admin_object(db_session):
     assert not can_read_private_tasks(db_session, stale)
 
 
-def test_op_key_never_inherits_private_authority_from_super_admin_owner(client, api, db_session, monkeypatch):
-    _register(client, api, monkeypatch)
+def test_op_key_never_inherits_private_authority_from_super_admin_owner(
+    client, api, db_session, monkeypatch, seed_legacy_task_details
+):
+    _register(client, api, monkeypatch, seed_legacy_task_details)
     bot = db_session.get(Bot, api["bot_id"])
     bot.api_key = "lbk_privacy_test_operator"
     db_session.get(User, bot.user_id).role = "super_admin"
@@ -223,8 +224,10 @@ def test_public_history_rejects_malformed_nested_scalars_and_unknown_operations(
     assert "outcome" not in public_event({"outcome": "private error details"})
 
 
-def test_super_admin_demotion_during_state_read_fails_closed(client, api, db_session, monkeypatch):
-    _register(client, api, monkeypatch)
+def test_super_admin_demotion_during_state_read_fails_closed(
+    client, api, db_session, monkeypatch, seed_legacy_task_details
+):
+    _register(client, api, monkeypatch, seed_legacy_task_details)
     owner = db_session.get(User, db_session.get(Bot, api["bot_id"]).user_id)
     owner.role = "super_admin"
     db_session.commit()

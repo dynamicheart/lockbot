@@ -1,5 +1,7 @@
 # Conditional task declaration cleanup
 
+This procedure applies to older servers that advertise `usage_privacy.conditional_cleanup`. Current versions have retired the standalone declaration API.
+
 Use this flow only after the user authorizes removing this task's declaration. Metadata cleanup does not release resources, renew a lease, recall group messages, or isolate Agents sharing the same personal key.
 
 1. Authenticate `/api/agent/context` on the approved service using this connection's personal key. Check `usage_privacy.conditional_cleanup`; do not assume an old server supports it.

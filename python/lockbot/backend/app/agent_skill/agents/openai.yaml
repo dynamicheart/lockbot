@@ -1,0 +1,3 @@
+interface:
+  display_name: "LockBot"
+  short_description: "Find, monitor, and reserve LockBot resources"

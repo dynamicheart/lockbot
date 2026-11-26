@@ -15,19 +15,17 @@ from lockbot.core.i18n import t
 from lockbot.core.io import (
     create_or_load_device_state,
     log_to_file,
-    save_bot_state_to_file,
 )
 from lockbot.core.utils import (
     create_user_info,
     duration_to_seconds,
     find_user_info,
-    format_duration,
     remaining_duration,
     remove_user_info,
 )
 
 # Regex building blocks for command parsing
-_DEV_NODE_LIST = r"([\w\d]+)((\s*[,，、]\s*([\w\d])+)*)"  # node1,node2,...
+_DEV_NODE_LIST = r"([\w-]+)((\s*[,，、]\s*([\w-])+)*)"  # node-1,node-2,...
 _DEV_SPEC = r"(\s+dev\s*((([0-9]+(\s*[,，、]\s*[0-9]+)*)|([0-9]+-[0-9]+))))"  # dev 0,1,2 or dev 0-3
 _DURATION = r"([0-9]+\.?[0-9]*)([dhm])"  # e.g. 3d, 2.5h, 30m
 
@@ -43,7 +41,7 @@ class DeviceBot(BaseLockBot):
     _node_list_pattern = _DEV_NODE_LIST
 
     def supported_commands(self):
-        return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query", "alias"]
+        return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query", "label", "alias"]
 
     def parse_command(self, user_id, command_key, command, parsing_duration=False):
         """
@@ -80,7 +78,13 @@ class DeviceBot(BaseLockBot):
         if m[3]:
             node_key_str += m[3]
 
-        node_key_list = list(dict.fromkeys(node_key.strip() for node_key in re.split(r"[,，、]", node_key_str)))
+        from lockbot.core.command_context import resource_command_transaction
+
+        transaction = resource_command_transaction.get()
+        if transaction is not None:
+            node_key_list = list(transaction.cards_by_node)
+        else:
+            node_key_list = list(dict.fromkeys(node_key.strip() for node_key in re.split(r"[,，、]", node_key_str)))
 
         for node_key in node_key_list:
             if node_key not in cluster_configs:
@@ -95,7 +99,9 @@ class DeviceBot(BaseLockBot):
                 )
                 return _get_return_values()
 
-        if m[7]:
+        if transaction is not None:
+            dev_ids_list = [transaction.cards_by_node[node] for node in node_key_list]
+        elif m[7]:
             dev_str = m[7].strip()
             if "-" in dev_str:
                 dev_min_max = dev_str.split("-")
@@ -149,8 +155,9 @@ class DeviceBot(BaseLockBot):
         """
         query current usage
         """
-        with self._state_guard():
-            content = self._msg_with_usage("query.cluster_usage_title", node_key=node_key)
+        snapshot = self.published_snapshot()
+        usage = self._current_usage(node_key, state=snapshot.state)
+        content = self._msg_with_usage("query.cluster_usage_title", usage=usage)
         return self._query_reply(content, user_id)
 
     def lock(self, user_id, command, *, acquisition_limit=None):
@@ -178,8 +185,6 @@ class DeviceBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
             targets = [f"{node}:dev{dev}" for node, ids in zip(node_key_list, dev_ids_list, strict=True) for dev in ids]
@@ -187,6 +192,7 @@ class DeviceBot(BaseLockBot):
             if policy_error:
                 return policy_error
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
@@ -201,25 +207,10 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_in_use_or_shared", node_key=node_key)
                     )
 
-                if max_dur > 0 and user_id not in whitelist:
-                    for device in devices:
-                        total_duration = duration
-                        user_info = find_user_info(device["current_users"], user_id)
-                        if user_info:
-                            total_duration += user_info["duration"]
-                            start_time = user_info["start_time"]
-                        else:
-                            start_time = timestamp
-                        if remaining_duration(start_time, total_duration) > max_dur:
-                            return self.show_error(
-                                user_id,
-                                t(
-                                    "error.lock_max_duration_exceeded",
-                                    config=self.config,
-                                    max_duration=format_duration(max_dur, config=self.config),
-                                    whitelist_hint=self._whitelist_hint(),
-                                ),
-                            )
+                for device in devices:
+                    holder = find_user_info(device["current_users"], user_id)
+                    if limit.rejects(holder, duration):
+                        return limit.error(self, user_id, holder)
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
@@ -237,6 +228,7 @@ class DeviceBot(BaseLockBot):
 
                     user_info["duration"] = total_duration
                     user_info["is_notified"] = False
+                    limit.record(user_info)
                     device["current_users"] = [user_info]
 
             reply = self.adapter.build_reply(
@@ -257,8 +249,6 @@ class DeviceBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self._duration_whitelist
         with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
             targets = [f"{node}:dev{dev}" for node, ids in zip(node_key_list, dev_ids_list, strict=True) for dev in ids]
@@ -266,6 +256,7 @@ class DeviceBot(BaseLockBot):
             if policy_error:
                 return policy_error
             timestamp = int(time.time())
+            limit = self._lease_limit_locked(user_id, timestamp)
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
@@ -275,25 +266,10 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_exclusive_mode", node_key=node_key)
                     )
 
-                if max_dur > 0 and user_id not in whitelist:
-                    for device in devices:
-                        user_info = find_user_info(device["current_users"], user_id)
-                        if user_info:
-                            total_duration = user_info["duration"] + duration
-                            start_time = user_info["start_time"]
-                        else:
-                            total_duration = duration
-                            start_time = timestamp
-                        if remaining_duration(start_time, total_duration) > max_dur:
-                            return self.show_error(
-                                user_id,
-                                t(
-                                    "error.slock_max_duration_exceeded",
-                                    config=self.config,
-                                    max_duration=format_duration(max_dur, config=self.config),
-                                    whitelist_hint=self._whitelist_hint(),
-                                ),
-                            )
+                for device in devices:
+                    holder = find_user_info(device["current_users"], user_id)
+                    if limit.rejects(holder, duration):
+                        return limit.error(self, user_id, holder, shared=True)
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
@@ -308,6 +284,7 @@ class DeviceBot(BaseLockBot):
                     else:
                         user_info["duration"] += duration
                         user_info["is_notified"] = False
+                    limit.record(user_info)
 
             reply = self.adapter.build_reply(
                 self._msg_with_usage("success.resource_locked", node_key=node_key_list), [user_id]
@@ -534,6 +511,7 @@ class DeviceBot(BaseLockBot):
         user_ids = set()
 
         alert_tuples = []
+        ended = []
 
         with self._state_guard():
             for node_key, devices in self.state.bot_state.items():
@@ -545,6 +523,14 @@ class DeviceBot(BaseLockBot):
                             if remaining_time <= 0:
                                 removed_users_id.append(user_info["user_id"])
                                 state_changed = True
+                                ended.append(
+                                    (
+                                        f"{node_key}:dev{device['dev_id']}",
+                                        user_info["user_id"],
+                                        "holding_expired",
+                                        user_info["start_time"] + user_info["duration"],
+                                    )
+                                )
 
                                 # Send expiry notification only if early warning was never sent.
                                 # When EARLY_NOTIFY=True and warning fired on time, is_notified=True → silent release.
@@ -584,7 +570,7 @@ class DeviceBot(BaseLockBot):
                             device["status"] = "idle"
 
             if state_changed:
-                save_bot_state_to_file(self.state.bot_state, config=self.config)
+                self._persist_state(ended=ended)
 
             # Compute next wakeup: scan remaining active users after mutations
             min_next = float("inf")
@@ -614,10 +600,14 @@ class DeviceBot(BaseLockBot):
 
         return max(1.0, min_next) if min_next != float("inf") else None
 
-    def _current_usage(self, node_filter=None):
+    def _current_usage(self, node_filter=None, *, state=None):
         """
         Get a text description of the current cluster device usage (supports merged display and heterogeneous hints).
         """
         return get_current_usage(
-            node_filter, self.state.bot_state, {}, config=self.config, display_node=self._display_node
+            node_filter,
+            self.state.bot_state if state is None else state,
+            {},
+            config=self.config,
+            display_node=self._display_node,
         )

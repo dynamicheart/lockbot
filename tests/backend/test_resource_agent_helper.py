@@ -951,9 +951,9 @@ def test_cli_argument_error_does_not_echo_pasted_key(capsys):
     assert "invalid_cli_arguments" in captured.err
 
 
-def test_bundle_hashes_and_helper_only_change_rotate_revision(client, monkeypatch):
+def test_bundle_hashes_and_helper_only_change_rotate_revision(monkeypatch):
     skill._skill_artifacts.cache_clear()
-    before = client.get("/api/agent-skill").json()
+    before = skill.skill_artifacts()[2]
     original = skill.files
 
     class Resource:
@@ -965,13 +965,13 @@ def test_bundle_hashes_and_helper_only_change_rotate_revision(client, monkeypatc
 
     monkeypatch.setattr(skill, "files", lambda _: Resource())
     skill._skill_artifacts.cache_clear()
-    after = client.get("/api/agent-skill").json()
+    after = skill.skill_artifacts()[2]
     assert before["skill_sha256"] == after["skill_sha256"]
     assert before["version"] != after["version"] and before["sha256"] != after["sha256"]
-    text = client.get(after["skill_url"])
-    assert text.headers["x-lockbot-skill-version"] == after["version"]
-    for descriptor in (after, after["installation"]):
-        archive = client.get(descriptor["download_url"]).content
+    for descriptor, archive in (
+        (after, skill.skill_artifacts()[1]),
+        (after["installation"], skill.installation_bundle()),
+    ):
         assert hashlib.sha256(archive).hexdigest() == descriptor["sha256"]
         with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
             root = descriptor["name"]

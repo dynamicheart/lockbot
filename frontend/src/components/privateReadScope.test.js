@@ -71,25 +71,65 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-it.each([
-  ['activity', AgentActivity],
-  ['history', AgentHistory],
-  ['authorization audit', BotAudit],
-])(
-  'clears %s private rows immediately and ignores an old private response after closing consent',
-  async (_name, component) => {
-    const { view, props } = mount(component)
-    expect(state.pending[0].options.params.include_private).toBe(true)
-    view.items = [{ purpose: 'fictional-private' }]
-    props.includePrivate = false
-    await nextTick()
-    expect(view.items).toEqual([])
-    expect(state.pending.at(-1).options.params.include_private).toBe(false)
-    state.pending[0].resolve({ data: { items: [{ purpose: 'fictional-late-private' }], total: 1 } })
-    await flush()
-    expect(view.items).toEqual([])
-  }
-)
+it('uses public reads in Agent history and ignores stale requests after switching bots', async () => {
+  const { props, view } = mount(AgentHistory, { botId: 1 })
+  const old = state.pending[0]
+  expect(old.options.params.include_private).toBe(false)
+  props.botId = 2
+  await nextTick()
+  expect(old.options.signal.aborted).toBe(true)
+  expect(state.pending[1].path).toBe('/bots/2/agent-history')
+  expect(state.pending[1].options.params.include_private).toBe(false)
+  old.resolve({ data: { items: [{ public_task: 'old bot' }] } })
+  await flush()
+  expect(view.items).toEqual([])
+})
+
+it('pages through ten Agent operations and resets the cursor when filtering by version', async () => {
+  const { view } = mount(AgentHistory, { botId: 1 })
+  expect(state.pending[0].options.params).toMatchObject({ limit: 10, cursor: undefined })
+  state.pending[0].resolve({ data: { items: [], next_cursor: 'next-page' } })
+  await flush()
+  view.next()
+  expect(state.pending[1].options.params.cursor).toBe('next-page')
+  view.version = 'v2'
+  view.reset()
+  expect(view.page).toBe(0)
+  expect(state.pending[1].options.signal.aborted).toBe(true)
+  expect(state.pending[2].options.params).toMatchObject({
+    version: 'v2',
+    limit: 10,
+    cursor: undefined,
+  })
+})
+
+it('combines the version and authorization filters for the full Agent token inventory', () => {
+  const { view } = mount(AgentActivity, {})
+  view.page = 3
+  view.version = 'v1'
+  view.status = 'history'
+  view.changeFilter()
+  expect(state.pending[1].path).toBe('/admin/agent-activity')
+  expect(state.pending[1].options.params).toMatchObject({
+    include_legacy: true,
+    version: 'v1',
+    status: 'history',
+    page: 1,
+  })
+})
+
+it('clears private authorization audit rows immediately after closing consent', async () => {
+  const { view, props } = mount(BotAudit)
+  expect(state.pending[0].options.params.include_private).toBe(true)
+  view.items = [{ purpose: 'fictional-private' }]
+  props.includePrivate = false
+  await nextTick()
+  expect(view.items).toEqual([])
+  expect(state.pending.at(-1).options.params.include_private).toBe(false)
+  state.pending[0].resolve({ data: { items: [{ purpose: 'fictional-late-private' }], total: 1 } })
+  await flush()
+  expect(view.items).toEqual([])
+})
 
 it('keeps monitoring public when filtering bots or receiving a detailed-note prop', async () => {
   vi.useFakeTimers()

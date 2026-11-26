@@ -8,6 +8,16 @@
         @keyup.enter="reset"
         @clear="reset"
       />
+      <el-select
+        v-model="version"
+        class="version-filter"
+        :aria-label="$t('agentActivity.version')"
+        @change="reset"
+      >
+        <el-option value="all" :label="$t('agentActivity.allVersions')" />
+        <el-option value="v1" label="V1" />
+        <el-option value="v2" label="V2" />
+      </el-select>
       <el-button :loading="loading" size="small" @click="reset">{{
         $t('common.refresh')
       }}</el-button>
@@ -38,6 +48,12 @@
           ></template
         ></el-table-column
       >
+      <el-table-column :label="$t('agentHistory.sourceIp')" min-width="145" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.source_ip || '—' }}</template>
+      </el-table-column>
+      <el-table-column :label="$t('agentActivity.version')" min-width="80">
+        <template #default="{ row }">{{ row.api_version ? 'V' + row.api_version : '—' }}</template>
+      </el-table-column>
       <el-table-column :label="$t('agentHistory.operation')" min-width="180" show-overflow-tooltip
         ><template #default="{ row }">{{
           row.command || $t('agentHistory.operations.' + row.operation)
@@ -51,8 +67,7 @@
           ><span v-if="row.public_task">{{ row.public_task }}</span
           ><small v-if="row.agent_label"
             >{{ $t('agentHistory.agentLabel') }} {{ row.agent_label }}</small
-          ><small v-if="row.purpose">{{ $t('agentHistory.noteLabel') }} {{ row.purpose }}</small
-          ><span v-if="!row.public_task && !row.agent_label && !row.purpose">—</span></template
+          ><span v-if="!row.public_task && !row.agent_label">—</span></template
         ></el-table-column
       >
       <el-table-column :label="$t('agentHistory.outcome')" min-width="150"
@@ -62,11 +77,11 @@
         ></el-table-column
       >
     </el-table>
-    <div class="history-pages">
+    <div v-if="page > 0 || nextCursor" class="history-pages">
       <el-button size="small" :disabled="page === 0 || loading" @click="previous">{{
         $t('agentHistory.previous')
       }}</el-button>
-      <span>{{ page + 1 }}</span>
+      <span>{{ $t('agentHistory.page', { page: page + 1 }) }}</span>
       <el-button size="small" :disabled="!nextCursor || loading" @click="next">{{
         $t('agentHistory.next')
       }}</el-button>
@@ -81,12 +96,12 @@ import api from '../utils/api'
 import { useActorDisplay } from '../utils/useFeishuDisplayNames'
 const props = defineProps({
   botId: { type: [Number, String], required: true },
-  includePrivate: { type: Boolean, default: false },
 })
 const { locale } = useI18n()
 const actorNames = useActorDisplay()
 const query = ref('')
 const activeQuery = ref('')
+const version = ref('all')
 const items = ref([])
 const restricted = ref(false)
 const error = ref(false)
@@ -119,8 +134,9 @@ async function load() {
       params: {
         cursor: cursors[page.value] || undefined,
         query: activeQuery.value,
-        limit: 25,
-        include_private: props.includePrivate,
+        version: version.value === 'all' ? undefined : version.value,
+        limit: 10,
+        include_private: false,
       },
       signal: controller.signal,
     })
@@ -144,6 +160,7 @@ function reset() {
   cursors.splice(0, cursors.length, null)
   page.value = 0
   items.value = []
+  nextCursor.value = null
   load()
 }
 function next() {
@@ -156,7 +173,7 @@ function previous() {
   load()
 }
 watch(
-  [() => props.botId, () => props.includePrivate],
+  () => props.botId,
   () => {
     query.value = ''
     reset()
@@ -176,12 +193,16 @@ onBeforeUnmount(() => {
 }
 .history-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin: 12px 0;
 }
 .history-toolbar .el-input {
   max-width: 320px;
+}
+.version-filter {
+  width: 120px;
 }
 .history-pages {
   display: flex;

@@ -1,5 +1,6 @@
 """Display-only cache metadata never replaces actor identity or broadens log visibility."""
 
+import time
 from collections import OrderedDict
 
 import pytest
@@ -107,3 +108,32 @@ def test_name_cache_is_scoped_to_current_routed_application(db_session, display_
     assert service.cached_bot_client(bot, db_session).cached_user_name("ou_alice") == "Second app label"
     bot.group_id = "oc_wrong_route"
     assert service.cached_bot_client(bot, db_session) is None
+
+
+def test_saved_names_survive_cache_loss_and_outbound_failure(
+    client, auth_header, admin_header, monkeypatch, display_bot
+):
+    from lockbot.core.platforms.feishu import FeishuAPIError
+
+    bot, app = display_bot
+    bot_id = bot.id
+    cached = service.application_client(app)
+    cached._remember_labels("user", {"ou_alice": "Verified user"}, time.time())
+    cached._remember_labels("group", {"oc_fixture": "Verified chat"}, time.time())
+    service._clients.clear()
+
+    def offline(*args, **kwargs):
+        raise FeishuAPIError("offline")
+
+    monkeypatch.setattr(type(cached), "_authorized_request", offline)
+    group = client.get(f"/api/feishu/bots/{bot_id}/group", headers=auth_header).raise_for_status().json()
+    assert group["status"] == "unavailable" and group["name"] == "Verified chat"
+    for path, header in (("/api/bots", auth_header), ("/api/admin/bots", admin_header)):
+        listing = client.get(path, headers=header).raise_for_status().json()
+        row = next(row for row in listing if row["id"] == bot_id)
+        assert row["group_name"] == "Verified chat"
+        assert row["last_user_display_name"] == "Verified user"
+        assert row["last_user_id"] == "ou_alice"
+        assert row["group_id"] == "oc_fixture"
+    detail = client.get(f"/api/bots/{bot_id}", headers=auth_header).raise_for_status().json()
+    assert detail["last_user_display_name"] == "Verified user"

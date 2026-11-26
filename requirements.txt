@@ -2,6 +2,7 @@
 pycryptodome
 requests
 six
+tzdata; sys_platform == "win32"
 
 # Backend (platform mode)
 fastapi
@@ -16,6 +17,7 @@ httpx
 # Backup
 bce-python-sdk
 pyzipper
+Pygments
 
 # Dev / Test
 pytest

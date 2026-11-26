@@ -2,17 +2,46 @@
 
 # ruff: noqa: F811
 import json
+from types import SimpleNamespace
 
 import pytest
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.resource_api import commands
+from lockbot.backend.app.resource_api.rules import binding_rules
 from lockbot.backend.app.resource_api.snapshot import QUEUE_CLAIM_WINDOW_SECONDS
 from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
 from lockbot.backend.app.resource_auth import service
 from lockbot.core.config import Config
 
 from backend.test_resource_api_resources import api  # noqa: F401
+
+
+def test_binding_rules_publish_only_thresholds_for_eligible_recovery_targets():
+    bot = SimpleNamespace(
+        id=23,
+        uuid="current-generation",
+        bot_type="QUEUE",
+        config_overrides=json.dumps(
+            {"MAX_LOCK_DURATION": 7200, "MAX_RESOURCES_PER_USER": 3, "IDLE_UTILIZATION_CHECK_ENABLED": True}
+        ),
+    )
+
+    def source(threshold, *, uuid=bot.uuid, enabled=True):
+        target = SimpleNamespace(bot_id=bot.id, bot_uuid=uuid, recover_idle=enabled)
+        return SimpleNamespace(threshold_percent=threshold, targets=[target])
+
+    observer = SimpleNamespace(sources=[source(5), source(7), source(12, uuid="prior"), source(15, enabled=False)])
+    rules = binding_rules(bot, "fixture-user", observer)
+    lock = rules["lock_rules"]
+    assert lock["max_lock_duration_seconds"] == lock["max_book_duration_seconds"] == 7200
+    assert lock["claim_window_seconds"] == QUEUE_CLAIM_WINDOW_SECONDS
+    assert lock["queue_auto_lock"] is False
+    assert lock["max_resources_per_user"] == 3
+    low = rules["low_utilization"]
+    assert low["thresholds"] == {"accelerator_utilization_percent": [5, 7]}
+    assert low["action_on_timeout"] == "release"
+    assert low["max_keeps"] == 1
 
 
 def context(client, api, headers=None):
@@ -37,6 +66,7 @@ def test_rules_use_core_defaults_and_type_operations(client, api):
     assert rules["effective_max_lock_duration_seconds"] == -1
     assert rules["duration_limit_exempt"] is False
     assert rules["resource_unit"] == ("card" if "DEVICE" in kind else "node")
+    assert rules["queue_auto_lock"] is False
     assert rules["queue_claim_window_seconds"] == (QUEUE_CLAIM_WINDOW_SECONDS if "QUEUE" in kind else None)
     assert set(rules["supported_operations"]) == (
         set(api["bot"].supported_commands()) & commands.AGENT_ALLOWED_COMMANDS

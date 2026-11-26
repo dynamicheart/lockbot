@@ -238,38 +238,6 @@
 
       <el-divider />
 
-      <section class="agent-settings" :aria-label="$t('botDetail.agentGroup')">
-        <div class="agent-settings-title">{{ $t('botDetail.agentGroup') }}</div>
-        <div class="agent-setting-row">
-          <label class="agent-setting-label" for="agent-access">
-            {{ $t('botDetail.agentAccess') }}
-            <el-tooltip :content="$t('botDetail.agentAccessHelp')" placement="top">
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </label>
-          <el-switch
-            id="agent-access"
-            v-model="agentAccess"
-            :disabled="isEdit && !bot"
-            :aria-label="$t('botDetail.agentAccess')"
-          />
-        </div>
-        <div class="agent-setting-row agent-notify-row" :class="{ 'is-disabled': !agentAccess }">
-          <label class="agent-setting-label" for="agent-notify">
-            {{ $t('botDetail.agentNotify') }}
-            <el-tooltip :content="$t('botDetail.agentNotifyHelp')" placement="top">
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </label>
-          <el-switch
-            id="agent-notify"
-            v-model="agentNotify"
-            :disabled="!agentAccess || (isEdit && !bot)"
-            :aria-label="$t('botDetail.agentNotify')"
-          />
-        </div>
-      </section>
-
       <section v-if="form.platform.toLowerCase() === 'feishu'" class="agent-settings-group">
         <div class="agent-setting-row">
           <label class="agent-setting-label" for="feishu-reaction-replies">
@@ -302,6 +270,156 @@
       <!-- Advanced Config -->
       <el-collapse>
         <el-collapse-item :title="$t('botCreate.advancedConfig')" name="advanced">
+          <section class="idle-check" :aria-label="$t('botCreate.idleUtilizationCheck')">
+            <div class="agent-setting-row">
+              <label class="agent-setting-label" for="idle-utilization-check">
+                {{ $t('botCreate.idleUtilizationCheck') }}
+                <el-tooltip :content="$t('botCreate.idleUtilizationCheckHelp')" placement="top">
+                  <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </label>
+              <el-switch
+                id="idle-utilization-check"
+                v-model="advancedConfig.IDLE_UTILIZATION_CHECK_ENABLED"
+                :aria-label="$t('botCreate.idleUtilizationCheck')"
+              />
+              <el-tag
+                v-if="!isEdit || bot"
+                class="sampling-status"
+                :type="idleSamplingTone[idleSamplingState]"
+                size="small"
+                effect="light"
+                round
+                disable-transitions
+              >
+                <span
+                  v-if="idleSamplingState === 'ready'"
+                  class="sampling-dot"
+                  aria-hidden="true"
+                />
+                {{ $t(`botCreate.idleSampling.${idleSamplingState}`) }}
+              </el-tag>
+            </div>
+            <div class="agent-setting-row">
+              <label class="agent-setting-label" for="overnight-pause-idle-check">
+                {{ $t('botCreate.overnightPauseIdleCheck') }}
+                <el-tooltip :content="$t('botCreate.overnightPauseIdleCheckHelp')" placement="top">
+                  <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </label>
+              <el-switch
+                id="overnight-pause-idle-check"
+                v-model="advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK"
+                :aria-label="$t('botCreate.overnightPauseIdleCheck')"
+              />
+            </div>
+            <div class="agent-setting-row">
+              <label class="agent-setting-label" for="overnight-lock">
+                {{ $t('botCreate.overnightLock') }}
+                <el-tooltip :content="$t('botCreate.overnightLockHelp')" placement="top">
+                  <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </label>
+              <el-switch
+                id="overnight-lock"
+                v-model="advancedConfig.OVERNIGHT_ENABLED"
+                :aria-label="$t('botCreate.overnightLock')"
+              />
+            </div>
+            <el-row
+              v-if="advancedConfig.OVERNIGHT_ENABLED || advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK"
+              :gutter="16"
+            >
+              <el-col :xs="24" :sm="8">
+                <el-form-item :label="$t('botCreate.overnightStart')">
+                  <el-input
+                    v-model="advancedConfig.OVERNIGHT_START"
+                    type="time"
+                    min="18:00"
+                    max="23:59"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item :label="$t('botCreate.overnightEnd')">
+                  <el-input
+                    v-model="advancedConfig.OVERNIGHT_END"
+                    type="time"
+                    min="00:00"
+                    max="10:00"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item :label="$t('botCreate.overnightTimezone')">
+                  <el-input v-model="advancedConfig.OVERNIGHT_TIMEZONE" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </section>
+
+          <section class="agent-settings" :aria-label="$t('botDetail.agentGroup')">
+            <div class="agent-settings-title">{{ $t('botDetail.agentGroup') }}</div>
+            <div class="agent-setting-row">
+              <label class="agent-setting-label" for="agent-access">
+                {{ $t('botDetail.agentAccess') }}
+                <el-tooltip :content="$t('botDetail.agentAccessHelp')" placement="top">
+                  <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </label>
+              <el-switch
+                id="agent-access"
+                v-model="agentAccess"
+                :disabled="isEdit && !bot"
+                :aria-label="$t('botDetail.agentAccess')"
+              />
+            </div>
+            <div
+              class="agent-setting-row agent-notify-row"
+              :class="{ 'is-disabled': !agentAccess }"
+            >
+              <label class="agent-setting-label" for="agent-notify">
+                {{ $t('botDetail.agentNotify') }}
+                <el-tooltip :content="$t('botDetail.agentNotifyHelp')" placement="top">
+                  <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </label>
+              <el-switch
+                id="agent-notify"
+                v-model="agentNotify"
+                :disabled="!agentAccess || (isEdit && !bot)"
+                :aria-label="$t('botDetail.agentNotify')"
+              />
+            </div>
+            <div class="agent-setting-row">
+              <label class="agent-setting-label" for="group-resource-reminders">
+                {{ $t('botCreate.groupRemindApiResources') }}
+                <el-tooltip :content="$t('botCreate.groupRemindApiResourcesHelp')" placement="top">
+                  <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </label>
+              <el-switch
+                id="group-resource-reminders"
+                v-model="advancedConfig.GROUP_REMIND_API_RESOURCES"
+                :aria-label="$t('botCreate.groupRemindApiResources')"
+              />
+            </div>
+            <div class="agent-setting-row">
+              <label class="agent-setting-label" for="group-idle-reminders">
+                {{ $t('botCreate.groupRemindAgentIdle') }}
+                <el-tooltip :content="$t('botCreate.groupRemindAgentIdleHelp')" placement="top">
+                  <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </label>
+              <el-switch
+                id="group-idle-reminders"
+                v-model="advancedConfig.GROUP_REMIND_AGENT_IDLE"
+                :disabled="!advancedConfig.IDLE_UTILIZATION_CHECK_ENABLED"
+                :aria-label="$t('botCreate.groupRemindAgentIdle')"
+              />
+            </div>
+          </section>
+
           <el-form-item>
             <template #label>
               {{ $t('resourceView.linkLifetime') }}
@@ -465,26 +583,14 @@
                 <el-switch v-model="advancedConfig.EARLY_NOTIFY" />
               </el-form-item>
             </el-col>
-            <el-col :xs="24">
+            <el-col v-if="['QUEUE', 'QUEUE_DEVICE'].includes(form.bot_type)" :xs="24">
               <el-form-item>
                 <template #label>
-                  {{ $t('botCreate.groupRemindApiResources') }}
-                  <el-tooltip
-                    :content="$t('botCreate.groupRemindApiResourcesHelp')"
-                    placement="top"
-                    effect="light"
-                  >
+                  {{ $t('botCreate.queueAutoLock') }}
+                  <el-tooltip :content="$t('botCreate.queueAutoLockHelp')" placement="top">
                     <el-icon class="help-icon"><QuestionFilled /></el-icon>
                   </el-tooltip>
                 </template>
-                <el-switch
-                  v-model="advancedConfig.GROUP_REMIND_API_RESOURCES"
-                  :aria-label="$t('botCreate.groupRemindApiResources')"
-                />
-              </el-form-item>
-            </el-col>
-            <el-col v-if="['QUEUE', 'QUEUE_DEVICE'].includes(form.bot_type)" :xs="24">
-              <el-form-item :label="$t('botCreate.queueAutoLock')">
                 <el-switch
                   v-model="advancedConfig.QUEUE_AUTO_LOCK"
                   :aria-label="$t('botCreate.queueAutoLock')"
@@ -628,6 +734,18 @@ const deviceFormRef = ref()
 const saving = ref(false)
 const clusterHasError = ref(false)
 const bot = ref(null)
+const idleSamplingTone = {
+  unconfigured: 'info',
+  waiting: 'warning',
+  partial: 'warning',
+  ready: 'success',
+}
+const idleSamplingState = computed(() => {
+  const { configured_nodes: configured, fresh_nodes: fresh } = bot.value?.idle_sampling || {}
+  if (!configured) return 'unconfigured'
+  if (!fresh) return 'waiting'
+  return fresh === configured ? 'ready' : 'partial'
+})
 const agentAccess = ref(true)
 const agentNotify = ref(true)
 const editBaseline = ref(null)
@@ -689,12 +807,19 @@ const resourceViewLinkDays = ref('inherit')
 const advancedConfig = reactive({
   DEFAULT_DURATION: 7200,
   MAX_LOCK_DURATION: -1,
+  OVERNIGHT_ENABLED: false,
+  OVERNIGHT_PAUSE_IDLE_CHECK: false,
+  OVERNIGHT_START: '22:00',
+  OVERNIGHT_END: '09:00',
+  OVERNIGHT_TIMEZONE: 'Asia/Shanghai',
   FORBID_RELOCK: false,
   FEISHU_QUERY_PANEL: false,
   MAX_RESOURCES_PER_USER: -1,
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
   GROUP_REMIND_API_RESOURCES: false,
+  IDLE_UTILIZATION_CHECK_ENABLED: true,
+  GROUP_REMIND_AGENT_IDLE: false,
   QUEUE_AUTO_LOCK: false,
   FEISHU_MEMBERSHIP_NOTICES: false,
   FEISHU_REACTION_REPLIES: false,
@@ -785,6 +910,15 @@ onMounted(async () => {
           advancedConfig.DEFAULT_DURATION = overrides.DEFAULT_DURATION
         if (overrides.MAX_LOCK_DURATION != null)
           advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
+        for (const key of [
+          'OVERNIGHT_ENABLED',
+          'OVERNIGHT_PAUSE_IDLE_CHECK',
+          'OVERNIGHT_START',
+          'OVERNIGHT_END',
+          'OVERNIGHT_TIMEZONE',
+        ]) {
+          if (overrides[key] != null) advancedConfig[key] = overrides[key]
+        }
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
         resourceViewLinkDays.value = overrides.RESOURCE_VIEW_LINK_DAYS ?? 'inherit'
         advancedConfig.FORBID_RELOCK = overrides.FORBID_RELOCK ?? false
@@ -796,6 +930,9 @@ onMounted(async () => {
           advancedConfig.FEISHU_REACTION_REPLIES = true
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
         advancedConfig.GROUP_REMIND_API_RESOURCES = overrides.GROUP_REMIND_API_RESOURCES === true
+        advancedConfig.IDLE_UTILIZATION_CHECK_ENABLED =
+          overrides.IDLE_UTILIZATION_CHECK_ENABLED !== false
+        advancedConfig.GROUP_REMIND_AGENT_IDLE = overrides.GROUP_REMIND_AGENT_IDLE === true
         advancedConfig.QUEUE_AUTO_LOCK = overrides.QUEUE_AUTO_LOCK === true
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
         if (Array.isArray(overrides.DURATION_WHITELIST))
@@ -980,8 +1117,11 @@ async function handleSubmit() {
   border-radius: 12px;
   padding: 28px 32px;
 }
+.idle-check {
+  margin: 8px 0 16px;
+}
 .agent-settings {
-  margin: 24px 0;
+  margin: 16px 0 24px;
   padding: 0;
 }
 .agent-settings-title {
@@ -992,11 +1132,44 @@ async function handleSubmit() {
 }
 .agent-setting-row {
   display: grid;
-  grid-template-columns: minmax(0, 160px) 40px;
+  grid-template-columns: minmax(0, 230px) 40px;
   align-items: center;
   justify-content: start;
   min-height: 40px;
   gap: 16px;
+}
+.idle-check .agent-setting-row {
+  grid-template-columns: minmax(0, 230px) 40px auto;
+}
+.sampling-status {
+  justify-self: start;
+}
+.sampling-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-inline-end: 4px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background-color: var(--el-color-success);
+  animation: sampling-breathe 3.2s ease-in-out infinite;
+}
+@keyframes sampling-breathe {
+  0%,
+  100% {
+    transform: scale(0.75);
+    opacity: 0.4;
+  }
+  45%,
+  55% {
+    transform: scale(1.24);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sampling-dot {
+    animation: none;
+  }
 }
 .agent-setting-label {
   display: inline-flex;

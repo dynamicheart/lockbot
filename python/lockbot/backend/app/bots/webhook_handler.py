@@ -68,7 +68,7 @@ def handle_webhook(bot, raw_form: dict, raw_args: dict, raw_body: bytes | None) 
     if allowed_groups and str(group_id) not in allowed_groups:
         return "conversation not authorized", 403, {"event": "scope_refused"}
 
-    reply = execute_text_command(user_id, command_text, bot, source="chat")
+    reply = execute_text_command(user_id, command_text, bot, source="chat", group_id=group_id)
 
     # Send the reply back to the conversation the message came from. Retargeting goes
     # through the adapter so this path carries no platform-specific message layout.

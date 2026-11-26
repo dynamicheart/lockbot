@@ -9,15 +9,18 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version as _pkg_version
+from types import MappingProxyType
 from uuid import uuid4
 
-from lockbot.core.config import Config
+from lockbot.core.config import Config, normalize_label_settings
 from lockbot.core.i18n import t
 from lockbot.core.message_adapter import ReplyLink
+from lockbot.core.overnight import LeaseLimit
 from lockbot.core.platforms.registry import create_adapter
 from lockbot.core.utils import format_access_mode, format_duration
 
@@ -35,6 +38,21 @@ class AcquisitionLimitExceeded(ValueError):
 
 class HoldingVersionConflict(ValueError):
     """The exact exclusive holding is no longer the one observed by an operator."""
+
+
+def _freeze_state(value):
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze_state(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_state(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceSnapshot:
+    revision: int
+    published_at: datetime
+    state: Mapping
 
 
 class BotState:
@@ -98,8 +116,24 @@ class BaseLockBot:
         # core/ owns no database, so the backend injects this. None means the commands
         # report themselves as unavailable.
         self.binding_hook: Callable[..., str] | None = None
+        self.idle_confirmation_hook: Callable[..., str] | None = None
+        self._on_resource_snapshot: Callable[..., None] | None = None
+        self._snapshot = ResourceSnapshot(0, datetime.now(timezone.utc), _freeze_state(self.state.bot_state))
 
         self._notify_clamped_users()
+
+    def _publish_resource_snapshot(self, state, *, ended=()):
+        """Called while the state lock is held after durable allocation changes."""
+        self._snapshot = ResourceSnapshot(self._snapshot.revision + 1, datetime.now(timezone.utc), _freeze_state(state))
+        if self._on_resource_snapshot is not None:
+            try:
+                self._on_resource_snapshot(ended=ended)
+            except Exception:
+                self.logger.exception("Failed to signal committed resource snapshot")
+
+    def published_snapshot(self) -> ResourceSnapshot:
+        """Read the last committed snapshot without entering the allocator lock."""
+        return self._snapshot
 
     def _notify_clamped_users(self):
         """Send notification to users whose locks were shortened by max_duration reduction."""
@@ -118,32 +152,47 @@ class BaseLockBot:
     @contextmanager
     def _state_guard(self):
         """Keep failure evidence inside the existing state lock; do not alter locking semantics."""
+        from lockbot.core.command_context import resource_command_transaction
+
         with self._lock:
+            transaction = resource_command_transaction.get()
+            if transaction is not None:
+                transaction.check(self.state.bot_state)
             try:
                 yield
+                if transaction is not None:
+                    transaction.observe(self.state.bot_state)
             except BaseException:
                 observer = getattr(self.config, "_lifecycle_observer", None)
                 if observer is not None:
                     with suppress(Exception):
                         observer.unconfirmed(self.state.bot_state)
                 raise
+            else:
+                from lockbot.core.command_result import observe_locked_state
+
+                observe_locked_state(self.state.bot_state)
 
     def _notify_state_changed(self) -> None:
         """Call _on_state_changed if wired up (no-op otherwise)."""
         if self._on_state_changed is not None:
             self._on_state_changed()
 
-    def _save_and_notify(self) -> None:
-        """Persist bot state to disk and wake the scheduler (if wired).
-
-        Use this in every command handler that mutates state so it's
-        impossible to forget either step.  The scheduler's
-        ``_check_and_notify`` loop should still call ``save_bot_state_to_file``
-        directly to avoid an unwanted reschedule from the timer thread.
-        """
+    def _persist_state(self, *, ended=()) -> None:
+        """Publish state after it is persisted. The caller owns the writer lock."""
+        from lockbot.core.command_context import resource_command_transaction
         from lockbot.core.io import save_bot_state_to_file
 
-        save_bot_state_to_file(self.state.bot_state, config=self.config)
+        state = self.state.bot_state
+        transaction = resource_command_transaction.get()
+        if transaction is not None:
+            transaction.before_save(state)
+        save_bot_state_to_file(state, config=self.config)
+        self._publish_resource_snapshot(state, ended=ended)
+
+    def _save_and_notify(self, *, ended=()) -> None:
+        """Persist a command's state change and wake the scheduler (if wired)."""
+        self._persist_state(ended=ended)
         self._notify_state_changed()
 
     def _check_acquisition_limit_locked(self, user_id, node_keys, limit):
@@ -166,6 +215,12 @@ class BaseLockBot:
         additions = set(node_keys) - held
         if additions and len(held | additions) > limit:
             raise AcquisitionLimitExceeded(limit)
+
+    def _lease_limit_locked(self, user_id, timestamp):
+        maximum = self.config.get_val("MAX_LOCK_DURATION")
+        if user_id in self._duration_whitelist:
+            maximum = -1
+        return LeaseLimit.for_config(self.config, timestamp, maximum)
 
     def _resource_policy_locked(self, user_id, targets, *, claim_duration=None):
         """Apply bot policy before any mutation; caller holds the state lock."""
@@ -218,8 +273,8 @@ class BaseLockBot:
         """Compare-only version for an exclusive holding in a detached or protected state."""
         entry = state.get(node_key)
         if device is not None:
-            entry = entry[device] if isinstance(entry, list) and 0 <= device < len(entry) else None
-        if not isinstance(entry, dict) or entry.get("status") != "exclusive":
+            entry = entry[device] if isinstance(entry, (list, tuple)) and 0 <= device < len(entry) else None
+        if not isinstance(entry, Mapping) or entry.get("status") != "exclusive":
             return None
         holders = entry.get("current_users") or []
         if len(holders) != 1:
@@ -245,6 +300,21 @@ class BaseLockBot:
         if actual is None or actual != expected:
             raise HoldingVersionConflict("Holding changed since observation")
 
+    def reclaim_idle_holding(self, node, device, holder, version, *, permit):
+        """Release one confirmed incarnation, preserving its queue and waking the scheduler."""
+        with self._state_guard():
+            self._check_op_holding_version(version, node, device, holder)
+            if not permit():
+                return False
+            entry = self.state.bot_state[node]
+            if device is not None:
+                entry = entry[device]
+            entry["current_users"].clear()
+            entry["status"] = "idle"
+            resource = node if device is None else f"{node}:dev{device}"
+            self._save_and_notify(ended=((resource, holder, "holding_reclaimed", time.time()),))
+            return True
+
     def do_opkick(self, target_user, node_key=None, dev_ids=None, reason="", *, expected_holding_version=None):
         """API-driven operator kick. Returns {"ok": True, "freed": [...]} or raises ValueError."""
         raise NotImplementedError("Subclass must implement do_opkick")
@@ -261,21 +331,21 @@ class BaseLockBot:
         return self.config.get_val("DURATION_WHITELIST") or []
 
     def _display_node(self, node_key):
-        """Return node_key with alias suffix if SHOW_NODE_ALIAS is enabled."""
-        if not self.config.get_val("SHOW_NODE_ALIAS"):
+        """Return node_key with alias suffix if SHOW_NODE_LABEL is enabled."""
+        if not self.config.get_val("SHOW_NODE_LABEL"):
             return node_key
-        aliases = self.config.get_val("NODE_ALIASES") or {}
+        aliases = self.config.get_val("NODE_LABELS") or {}
         alias = aliases.get(node_key)
         return f"{node_key}「{alias}」" if alias else node_key
 
-    def alias(self, user_id, command):
-        """Set or clear a node alias. Usage: alias <node_key> [alias_value]"""
-        if not self.config.get_val("ALLOW_USER_ALIAS"):
+    def label(self, user_id, command):
+        """Set or clear a shared node label."""
+        if not self.config.get_val("ALLOW_USER_LABEL"):
             return self.show_error(user_id, t("alias.disabled", config=self.config))
 
         import re
 
-        m = re.match(r"^\s*alias\s+([\w\d_-]+)(?:\s+([\s\S]+?))?\s*$", command)
+        m = re.match(r"^\s*(?:label|alias)\s+([\w\d_-]+)(?:\s+([\s\S]+?))?\s*$", command, re.I)
         if not m:
             return self.show_error(user_id, t("alias.usage", config=self.config))
 
@@ -300,15 +370,15 @@ class BaseLockBot:
                 ),
             )
 
-        aliases = self.config.get_val("NODE_ALIASES") or {}
+        aliases = self.config.get_val("NODE_LABELS") or {}
         if alias_val:
             aliases[node_key] = alias_val
         else:
             aliases.pop(node_key, None)
-        self.config.set_val("NODE_ALIASES", aliases)
+        self.config.set_val("NODE_LABELS", aliases)
 
         # Persist to DB if running under platform mode
-        persisted = self._persist_config_override("NODE_ALIASES", aliases)
+        persisted = self._persist_config_override("NODE_LABELS", aliases)
 
         if alias_val:
             self.logger.info("user=%s set alias %s -> %s", user_id, node_key, alias_val)
@@ -322,6 +392,9 @@ class BaseLockBot:
 
             return completed_reply(reply, "alias")
         return reply
+
+    def alias(self, user_id, command):
+        return self.label(user_id, command)
 
     def _persist_config_override(self, key, value):
         """Persist a single config_override key to DB (best-effort)."""
@@ -338,7 +411,7 @@ class BaseLockBot:
             try:
                 bot = db.query(Bot).filter(Bot.id == int(bot_id)).first()
                 if bot:
-                    overrides = json.loads(bot.config_overrides) if bot.config_overrides else {}
+                    overrides = normalize_label_settings(json.loads(bot.config_overrides or "{}"))
                     overrides[key] = value
                     bot.config_overrides = json.dumps(overrides, ensure_ascii=False)
                     db.commit()
@@ -494,16 +567,6 @@ class BaseLockBot:
         if extra_info is None:
             platform_url = self._get_site_value("platform_url") or self.config.get_val("PLATFORM_URL")
             github_url = self._get_site_value("github_url") or self.config.get_val("GITHUB_URL")
-            panel_url = self._personal_panel_url()
-            if panel_url:
-                help_links.extend(
-                    [
-                        "\n",
-                        (t("help.personal_panel", config=self.config), panel_url),
-                        "\n",
-                        t("help.personal_panel_hint", config=self.config),
-                    ]
-                )
             if platform_url or github_url or skill_url:
                 help_links.append("\n")
             if platform_url:
@@ -521,13 +584,6 @@ class BaseLockBot:
         else:
             reply_info += "\n"
         return self.adapter.build_reply(reply_info, [user_id])
-
-    def _personal_panel_url(self):
-        getter = self.config.get_val("_PERSONAL_PANEL_URL")
-        try:
-            return getter() if callable(getter) else ""
-        except Exception:
-            return ""
 
     def _agent_skill_url(self):
         getter = self.config.get_val("_AGENT_SKILL_URL")

@@ -7,6 +7,8 @@ services:
     environment:
       DATA_DIR: /data
       PLATFORM_URL: ${PLATFORM_URL:-}
+      LB_RELEASE_MANIFEST_URL: ${LB_RELEASE_MANIFEST_URL:-}
+      RESOURCE_AUTH_V1_ENROLLMENT_ENABLED: ${RESOURCE_AUTH_V1_ENROLLMENT_ENABLED:-false}
       JWT_SECRET: ${JWT_SECRET:?Preserve the existing JWT secret on upgrades}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Preserve the existing encryption key on upgrades}
       DEV_MODE: "false"
