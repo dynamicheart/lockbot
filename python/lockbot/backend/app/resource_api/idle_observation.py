@@ -20,6 +20,7 @@ from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, Insta
 from lockbot.backend.app.bots.metrics_access import issue_metrics_access
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import SessionLocal
+from lockbot.backend.app.resource_api.daily_reports import SETTING as DAILY_REPORT_SETTING
 from lockbot.backend.app.resource_api.idle_notifications import IdleChat
 from lockbot.backend.app.resource_api.idle_recovery import (
     IDLE_SECONDS,
@@ -277,6 +278,7 @@ class IdleObserver:
         self.chat_notification = chat.send
         self.confirm_chat = chat.confirm if self.recovery is not None else None
         self._network_slots = asyncio.Semaphore(4)
+        self.report_samples = None
 
     @property
     def candidates(self):
@@ -330,16 +332,24 @@ class IdleObserver:
         now = self.clock()
         current = {}
         sampling = {}
+        report_rows = []
         if metrics:
             for bot_id, targets in self._targets_by_bot[index].items():
                 try:
                     with self.manager.admit(bot_id, for_read=True) as lease:
                         if lease.health != "error":
-                            self._observe_bot(lease, targets, source, metrics, now, previous, current, sampling)
+                            self._observe_bot(
+                                lease, targets, source, metrics, now, previous, current, sampling, report_rows
+                            )
                 except (AdmissionFull, BotNotRunning, InstanceRetiring):
                     continue
         self._windows[index] = current
         self._sampling[index] = sampling
+        if report_rows and self.report_samples is not None:
+            try:
+                await asyncio.to_thread(self.report_samples, report_rows, now)
+            except Exception as error:
+                logger.warning("Daily utilization samples could not be saved (%s)", type(error).__name__)
         count = sum(row.actionable for row in current.values())
         if count != sum(row.actionable for row in previous.values()):
             logger.info("Low-utilization observation source %d has %d candidates", index + 1, count)
@@ -356,7 +366,7 @@ class IdleObserver:
                     if notice.channel == "chat" or notice.group_delivered:
                         await asyncio.to_thread(self.chat_notification, notice, "released")
 
-    def _observe_bot(self, lease, targets, source, metrics, now, previous, current, sampling):
+    def _observe_bot(self, lease, targets, source, metrics, now, previous, current, sampling, report_rows=None):
         bot = lease.bot
         enabled = bot.config.get_val("IDLE_UTILIZATION_CHECK_ENABLED")
         overnight_cutoff = idle_check_overnight_cutoff(bot.config, now) if enabled else None
@@ -384,6 +394,25 @@ class IdleObserver:
                     mapped = not any(metric == UTILIZATION and device not in inventory for metric, device in samples)
                 if mapped:
                     sampling[target.bot_id, target.node] = observed_at + source.max_sample_age_seconds
+                    if report_rows is not None and self.report_samples and bot.config.get_val(DAILY_REPORT_SETTING):
+                        scoped = (
+                            [(f"{target.node}:dev{index}", (device,)) for index, device in target.cards.items()]
+                            if isinstance(unit, tuple)
+                            else [(target.node, inventory)]
+                        )
+                        for resource, devices in scoped:
+                            report_rows.append(
+                                (
+                                    bot_uuid,
+                                    bot.config.get_val("_IDENTITY_REVISION"),
+                                    resource,
+                                    observed_at,
+                                    observed_at + source.max_sample_age_seconds,
+                                    len(devices),
+                                    sum(samples[UTILIZATION, device] for device in devices) / len(devices),
+                                    now,
+                                )
+                            )
             if not enabled or (target.recover_idle and not complete) or observed_at is None:
                 continue
             if overnight_cutoff is not None and observed_at < overnight_cutoff:

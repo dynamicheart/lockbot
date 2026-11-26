@@ -523,10 +523,14 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         restore_proxy(db)
 
+    from lockbot.backend.app.resource_api.daily_reports import DailyReports
     from lockbot.backend.app.resource_api.idle_observation import configured_observer
 
     observer = configured_observer(bot_manager)
     app.state.idle_observer = observer
+    daily_reports = DailyReports(bot_manager, observer) if observer else None
+    if daily_reports:
+        observer.report_samples = daily_reports.record
     bot_manager.idle_confirmation_hook = getattr(observer, "confirm_chat", None)
     bot_manager.start_scheduler()
     _reset_running_bots()
@@ -548,12 +552,16 @@ async def lifespan(app: FastAPI):
     broadcast_worker.start()
     usage_cleanup = asyncio.create_task(usage_cleanup_loop())
     idle_observation = asyncio.create_task(observer.run()) if observer else None
+    if daily_reports:
+        daily_reports.start()
     app.state.v2_agent_activity = V2ActivityRecorder(engine)
     agent_activity_flush = asyncio.create_task(app.state.v2_agent_activity.run())
     app.state.service_history.start()
     try:
         yield
     finally:
+        if daily_reports:
+            await asyncio.to_thread(daily_reports.stop)
         app.state.v2_agent_activity.stop()
         await agent_activity_flush
         if idle_observation is not None:

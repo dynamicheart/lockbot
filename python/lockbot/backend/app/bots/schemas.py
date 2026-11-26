@@ -52,6 +52,7 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
         "OVERNIGHT_PAUSE_IDLE_CHECK",
         "IDLE_UTILIZATION_CHECK_ENABLED",
         "GROUP_REMIND_AGENT_IDLE",
+        "DAILY_UTILIZATION_REPORT_ENABLED",
     ):
         if key in v and not isinstance(v[key], bool):
             errors.append(f"{key} must be a boolean")
@@ -220,6 +221,7 @@ class BotDetail(BotOut):
     """Detail view with sensitive fields (both masked and raw for show/copy)."""
 
     idle_sampling: IdleSamplingStatus | None = None
+    daily_utilization_report_available: bool = False
     migration_in_progress: bool = False
 
     owner: str = ""

@@ -301,6 +301,25 @@
               </el-tag>
             </div>
             <div class="agent-setting-row">
+              <label class="agent-setting-label" for="daily-utilization-report">
+                {{ $t('botCreate.dailyUtilizationReport') }}
+                <el-tooltip
+                  :content="$t(bot?.daily_utilization_report_available
+                    ? 'botCreate.dailyUtilizationReportHelp'
+                    : 'botCreate.dailyUtilizationReportUnavailable')"
+                  placement="top"
+                >
+                  <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                </el-tooltip>
+              </label>
+              <el-switch
+                id="daily-utilization-report"
+                v-model="advancedConfig.DAILY_UTILIZATION_REPORT_ENABLED"
+                :disabled="!bot?.daily_utilization_report_available && !advancedConfig.DAILY_UTILIZATION_REPORT_ENABLED"
+                :aria-label="$t('botCreate.dailyUtilizationReport')"
+              />
+            </div>
+            <div class="agent-setting-row">
               <label class="agent-setting-label" for="overnight-pause-idle-check">
                 {{ $t('botCreate.overnightPauseIdleCheck') }}
                 <el-tooltip :content="$t('botCreate.overnightPauseIdleCheckHelp')" placement="top">
@@ -327,10 +346,10 @@
               />
             </div>
             <el-row
-              v-if="advancedConfig.OVERNIGHT_ENABLED || advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK"
+              v-if="overnightRulesEnabled || advancedConfig.DAILY_UTILIZATION_REPORT_ENABLED"
               :gutter="16"
             >
-              <el-col :xs="24" :sm="8">
+              <el-col v-if="overnightRulesEnabled" :xs="24" :sm="8">
                 <el-form-item :label="$t('botCreate.overnightStart')">
                   <el-input
                     v-model="advancedConfig.OVERNIGHT_START"
@@ -340,7 +359,7 @@
                   />
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :sm="8">
+              <el-col v-if="overnightRulesEnabled" :xs="24" :sm="8">
                 <el-form-item :label="$t('botCreate.overnightEnd')">
                   <el-input
                     v-model="advancedConfig.OVERNIGHT_END"
@@ -352,7 +371,14 @@
               </el-col>
               <el-col :xs="24" :sm="8">
                 <el-form-item :label="$t('botCreate.overnightTimezone')">
-                  <el-input v-model="advancedConfig.OVERNIGHT_TIMEZONE" />
+                  <el-select v-model="advancedConfig.OVERNIGHT_TIMEZONE" filterable style="width: 100%">
+                    <el-option
+                      v-for="zone in schedulingTimezones"
+                      :key="zone"
+                      :label="zone === 'Asia/Shanghai' ? $t('botCreate.beijingTimezone') : zone"
+                      :value="zone"
+                    />
+                  </el-select>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -819,6 +845,7 @@ const advancedConfig = reactive({
   EARLY_NOTIFY: false,
   GROUP_REMIND_API_RESOURCES: false,
   IDLE_UTILIZATION_CHECK_ENABLED: true,
+  DAILY_UTILIZATION_REPORT_ENABLED: false,
   GROUP_REMIND_AGENT_IDLE: false,
   QUEUE_AUTO_LOCK: false,
   FEISHU_MEMBERSHIP_NOTICES: false,
@@ -837,6 +864,21 @@ const resourceCountUnlimited = computed({
     advancedConfig.MAX_RESOURCES_PER_USER = value ? -1 : 1
   },
 })
+
+const overnightRulesEnabled = computed(
+  () => advancedConfig.OVERNIGHT_ENABLED || advancedConfig.OVERNIGHT_PAUSE_IDLE_CHECK,
+)
+const supportedTimezones = Intl.supportedValuesOf?.('timeZone') ?? [
+  'Asia/Tokyo',
+  'Asia/Singapore',
+  'Europe/London',
+  'Europe/Paris',
+  'America/New_York',
+  'America/Los_Angeles',
+]
+const schedulingTimezones = computed(() => [
+  ...new Set(['Asia/Shanghai', 'UTC', ...supportedTimezones, advancedConfig.OVERNIGHT_TIMEZONE]),
+])
 
 function formatSeconds(s) {
   if (s == null || s < 0) return ''
@@ -932,6 +974,7 @@ onMounted(async () => {
         advancedConfig.GROUP_REMIND_API_RESOURCES = overrides.GROUP_REMIND_API_RESOURCES === true
         advancedConfig.IDLE_UTILIZATION_CHECK_ENABLED =
           overrides.IDLE_UTILIZATION_CHECK_ENABLED !== false
+        advancedConfig.DAILY_UTILIZATION_REPORT_ENABLED = overrides.DAILY_UTILIZATION_REPORT_ENABLED === true
         advancedConfig.GROUP_REMIND_AGENT_IDLE = overrides.GROUP_REMIND_AGENT_IDLE === true
         advancedConfig.QUEUE_AUTO_LOCK = overrides.QUEUE_AUTO_LOCK === true
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE

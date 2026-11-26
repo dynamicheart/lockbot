@@ -63,6 +63,8 @@ from lockbot.backend.app.managed_paths import get_managed_paths, sanitize_manage
 from lockbot.backend.app.platform_applications.service import bot_credentials, credentials_for, runtime_guard
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors as api_errors
+from lockbot.backend.app.resource_api.daily_reports import SETTING as DAILY_REPORT_SETTING
+from lockbot.backend.app.resource_api.daily_reports import report_available, report_group
 from lockbot.backend.app.resource_api.privacy import (
     audit_private_read,
     private_task_view,
@@ -435,6 +437,8 @@ def _create_bot(request, body, user, db):
         raise HTTPException(status_code=403, detail="Creation is disabled for this message platform")
 
     _validate_node_aliases(body.config_overrides, body.cluster_configs)
+    if (body.config_overrides or {}).get(DAILY_REPORT_SETTING):
+        raise HTTPException(422, "Daily reports require an existing bot with a configured server datasource")
 
     exists = (
         db.query(Bot)
@@ -610,7 +614,13 @@ def get_bot(
     migration_in_progress = user.role == "super_admin" and migration_fence(db, bot_id) is not None
     observer = getattr(request.app.state, "idle_observer", None)
     sampling = observer.sampling_status(bot.id, bot.uuid) if observer else None
-    return {**_mask_bot(bot, db), **view, "migration_in_progress": migration_in_progress, "idle_sampling": sampling}
+    return {
+        **_mask_bot(bot, db),
+        **view,
+        "migration_in_progress": migration_in_progress,
+        "idle_sampling": sampling,
+        "daily_utilization_report_available": report_available(bot, observer),
+    }
 
 
 @router.post("/{bot_id}/view-link/regenerate")
@@ -665,6 +675,14 @@ def update_bot(
     _get_user_bot(bot_id, user, db)
 
     with _owned_bot(bot_id, user, db) as bot:
+        if (body.config_overrides or {}).get(DAILY_REPORT_SETTING) and not json.loads(bot.config_overrides or "{}").get(
+            DAILY_REPORT_SETTING
+        ):
+            observer = getattr(request.app.state, "idle_observer", None)
+            group_ids = bot.group_id if body.group_id is None else body.group_id
+            source_removed = "utilization_config" in body.model_fields_set and body.utilization_config is None
+            if source_removed or not report_available(bot, observer) or not report_group(bot.platform, group_ids):
+                raise HTTPException(422, "Daily reports require a configured server datasource and a single group")
         if (bot.platform or "").lower() == "feishu" and body.group_id is not None and body.group_id != bot.group_id:
             raise HTTPException(422, "Changing an existing Feishu group route requires explicit re-enrollment")
         identity_changed = (body.group_id is not None and body.group_id != bot.group_id) or any(
