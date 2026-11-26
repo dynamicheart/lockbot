@@ -39,7 +39,11 @@ def test_openapi_versions_and_query_protection(client):
 def test_agent_v2_documentation_links_to_quickstart(client, lang, heading):
     headers = {"Accept-Language": lang}
     directory = client.get("/api/public-docs", headers=headers).raise_for_status().text
-    assert "Agent API v1" in directory and "Agent API v2" in directory
+    assert '<a href="/api/public-docs/agent"><s>Agent API v1</s></a>' in directory
+    assert '<a href="/api/public-docs/agent-v2">Agent API v2</a>' in directory
+    legacy = client.get("/api/public-docs/agent", headers=headers).raise_for_status().text
+    assert "/api/public-openapi.json?scope=agent" in legacy
+    assert "text-decoration: line-through" in legacy
     response = client.get("/api/public-docs/agent-v2", headers=headers).raise_for_status()
     assert response.headers["content-language"] == lang
     document = response.text
@@ -47,10 +51,30 @@ def test_agent_v2_documentation_links_to_quickstart(client, lang, heading):
     assert f'href="{quickstart_path}"' in document
     assert heading in document and 'id="swagger-ui"' in document
     assert "<details" not in document
+    assert "text-decoration: line-through" not in document
     guide = client.get(quickstart_path, headers=headers).raise_for_status()
     assert guide.headers["content-language"] == lang
     assert heading in guide.text and 'id="swagger-ui"' not in guide.text
+    assert '<code class="language-bash">' in guide.text
+    assert 'class="nv"' in guide.text and 'class="s1"' in guide.text
+    assert "cdn.jsdelivr" not in guide.text
     assert all(key in guide.text for key in ("resource_refs", "booking_ref", "Idempotency-Key"))
+
+
+def test_openapi_v2_documents_binding_rules_and_example(client):
+    from lockbot.backend.app.resource_api.v2.binding import BindingRuleDirectory
+
+    document = client.get(API + "/openapi.json").raise_for_status().json()
+    endpoint = document["paths"][API + "/bindings"]["get"]
+    schemas = document["components"]["schemas"]
+    for model in ("BindingLockRules", "BindingLowUtilizationRule", "IdleThresholds", "OvernightRule"):
+        for name, field in schemas[model]["properties"].items():
+            assert field.get("description"), f"{model}.{name} needs a field description"
+            assert f"`{name}`" in endpoint["description"] or f".{name}`" in endpoint["description"]
+    example = endpoint["responses"]["200"]["content"]["application/json"]["examples"]["bound"]["value"]
+    details = BindingRuleDirectory.model_validate(example).grants[0]
+    assert details.lock_rules.claim_window_seconds == 300
+    assert details.low_utilization.thresholds.accelerator_utilization_percent == [5.0]
 
 
 def test_openapi_v2_shows_command_examples_and_outcomes(client):
@@ -256,8 +280,11 @@ def test_host_inventory_reaches_agent_reads_and_shared_view(
             {"model": "Example Device", "count": 2, "memory_bytes_per_card": 96 * 2**30},
         ]
 
-        def upload(scope, observed_at):
-            sample = {"observed_at": observed_at.isoformat(), "scope": scope, "accelerators": accelerators}
+        attributes = [{"label": "Example setting", "value": "Enabled"}]
+        devices = [{"index": 0, "attributes": [{"label": "Example capacity", "value": "20", "unit": "units"}]}]
+
+        def upload(scope, observed_at, **extra):
+            sample = {"observed_at": observed_at.isoformat(), "scope": scope, "accelerators": accelerators, **extra}
             payload = {
                 "scope": "node_inventory:write",
                 "configuration": {"version": 1, "nodes": {"node-23": sample}},
@@ -271,7 +298,7 @@ def test_host_inventory_reaches_agent_reads_and_shared_view(
         (fallback,) = client.get(resource_path, headers=agent_headers).raise_for_status().json()["rows"]
         assert fallback["hardware"] == old_hardware
 
-        upload("host", stamp)
+        upload("host", stamp, attributes=attributes, devices=devices)
         expected = [{"model": "Example Device", "count": 4}]
         (found,) = client.get(resource_path, headers=agent_headers).raise_for_status().json()["rows"]
         assert found["hardware"] == expected
@@ -282,8 +309,25 @@ def test_host_inventory_reaches_agent_reads_and_shared_view(
             (row,) = client.get(resource_path, headers=agent_headers, params=params).raise_for_status().json()["rows"]
             assert row["hardware"] == expected
 
+        assert "node_attributes" not in found
+        details = (
+            client.get(resource_path, headers=agent_headers, params={"node": "node-23", "fields": "node_attributes"})
+            .raise_for_status()
+            .json()["rows"]
+        )
+        assert details[0]["node_attributes"] == {
+            "observed_at": stamp.isoformat().replace("+00:00", "Z"),
+            "attributes": attributes,
+            "devices": devices,
+        }
+        assert (
+            client.get(resource_path, headers=agent_headers, params={"include_node_attributes": "true"}).status_code
+            == 422
+        )
+
         (shared,) = client.get(shared_path, headers=shared_headers).raise_for_status().json()["resources"]
         assert shared["hardware"] == expected
+        assert "node_attributes" not in shared
     finally:
         manager.stop_bot(bot_id)
 
@@ -318,6 +362,67 @@ def test_management_activity_identifies_v2_tokens_and_counts_recent_verified_acc
     stats = client.get("/api/public/stats", headers=auth_header).raise_for_status().json()
     assert stats["agent_tokens"] == before["agent_tokens"] + 1
     assert stats["agent_requests_hour"] == before["agent_requests_hour"] + 2
+
+    from datetime import datetime, timedelta
+
+    from lockbot.backend.app.bots.models import Bot
+    from lockbot.backend.app.resource_api.activity import AgentActivity
+    from lockbot.backend.app.resource_auth.models import ResourceBinding
+
+    bot = db_session.get(Bot, bot_id)
+    legacy = ResourceBinding(
+        public_id="legacy-fixture",
+        platform="infoflow",
+        external_user_id="legacy-user",
+        bound_bot_id=bot.id,
+        bound_bot_uuid=bot.uuid,
+        bound_identity_revision=bot.identity_revision,
+        credential_digest="legacy-private-digest",
+    )
+    db_session.add(legacy)
+    db_session.flush()
+    db_session.add(
+        AgentActivity(
+            binding_id=legacy.id,
+            read_requests=2,
+            last_status=200,
+            last_seen_at=datetime.utcnow() - timedelta(minutes=1),
+        )
+    )
+    db_session.commit()
+    for page, expected in ((1, "v2"), (2, "v1")):
+        result = (
+            client.get(path, headers=admin_header, params={"include_legacy": True, "limit": 1, "page": page})
+            .raise_for_status()
+            .json()
+        )
+        assert result["total"] == 2
+        (item,) = result["items"]
+        assert item["version"] == expected
+        assert "sort_key" not in item and "credential_digest" not in item
+        assert item["bot_name"] == ("Versioned statistics" if expected == "v1" else None)
+    assert client.get(path, headers=admin_header).json()["total"] == 1
+    for version in ("v1", "v2"):
+        filtered = client.get(path, headers=admin_header, params={"version": version, "limit": 1}).raise_for_status()
+        assert filtered.json()["total"] == 1
+        (item,) = filtered.json()["items"]
+        assert item["version"] == version
+
+    legacy.credential_expires_at = datetime.utcnow() - timedelta(seconds=1)
+    db_session.commit()
+    history = (
+        client.get(path, headers=admin_header, params={"include_legacy": True, "status": "history"})
+        .raise_for_status()
+        .json()
+    )
+    (item,) = history["items"]
+    assert item["version"] == "v1" and item["expired"] and not item["active"]
+    assert item["read_requests"] == 2
+    for version, status in (("v1", "active"), ("v2", "history")):
+        filtered = client.get(
+            path, headers=admin_header, params={"version": version, "status": status, "include_legacy": True}
+        ).raise_for_status()
+        assert filtered.json()["total"] == 0
 
 
 def test_v2_binding_source_capacity_releases_confirmed_slot(client, auth_header, session_factory, monkeypatch):
@@ -657,6 +762,8 @@ def test_personal_key_adds_grants_only_for_confirmed_identity(client, auth_heade
     schema = client.get(API + "/openapi.json").json()
     assert schema["components"]["securitySchemes"]["PersonalKey"]["bearerFormat"] == "lbv2_…"
     assert schema["paths"][API + "/commands"]["post"]["security"] == [{"PersonalKey": []}]
+    assert "lock_rules" in schema["components"]["schemas"]["BindingRuleGrant"]["properties"]
+    assert "thresholds" in schema["components"]["schemas"]["BindingLowUtilizationRule"]["properties"]
     assert all(path.startswith(API + "/") for path in schema["paths"])
     first_bot = make_bot(client, auth_header, "first")
     second_bot = make_bot(client, auth_header, "second")
@@ -680,7 +787,14 @@ def test_personal_key_adds_grants_only_for_confirmed_identity(client, auth_heade
     wrong_sender = issue(client, key)
     chat(second_bot, wrong_sender, sender="bob")
     assert finish(client, wrong_sender).json() == {"status": "pending"}
-    assert [x["name"] for x in client.get(API + "/bindings", headers=bearer(key)).json()["grants"]] == ["first"]
+    grants = client.get(API + "/bindings", headers=bearer(key)).raise_for_status().json()["grants"]
+    assert [x["name"] for x in grants] == ["first"]
+    assert grants[0]["lock_rules"]["unit"] == "node"
+    assert grants[0]["lock_rules"]["claim_window_seconds"] is None
+    assert grants[0]["lock_rules"]["max_book_duration_seconds"] is None
+    assert grants[0]["lock_rules"]["shared_lock_supported"] is True
+    assert grants[0]["low_utilization"]["thresholds"] is None
+    assert grants[0]["low_utilization"]["max_keeps"] == 1
 
     second = wrong_sender
     chat(second_bot, second)
@@ -769,8 +883,10 @@ def test_queue_timing_distinguishes_join_time_and_claim_window():
 
 def test_agent_v2_resources_commands_and_queue(client, auth_header, session_factory, monkeypatch, tmp_path):
     import json
+    from contextlib import closing
 
     import jwt
+    from fastapi.testclient import TestClient
     from lockbot.backend.app.bots.manager import BotManager
     from lockbot.backend.app.bots.models import Bot
 
@@ -791,6 +907,21 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
     )
     assert response.status_code == 201, response.text
     bot_id = response.json()["id"]
+    from lockbot.backend.app.bots.node_access import serialize_node_access
+
+    with session_factory() as database:
+        database.get(Bot, bot_id).node_access_config = serialize_node_access(
+            {
+                "node-23": {
+                    "host": "node-23.example.test",
+                    "ip": "192.0.2.41",
+                    "port": 22,
+                    "method": "fixture-private-method",
+                    "note": "fixture-private-note",
+                }
+            }
+        )
+        database.commit()
     manager.start_bot(
         bot_id,
         {
@@ -807,7 +938,7 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
         chat(bot_id, challenge, sender=actor)
         return bearer(finish(client, challenge).json()["credential"])
 
-    def command(headers, operation, *refs, duration=None, booking=None, idem=None):
+    def command(headers, operation, *refs, duration=None, booking=None, idem=None, connection=client):
         body = {"operation": operation}
         if refs:
             body["resource_refs"] = list(refs)
@@ -817,14 +948,26 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
             body["booking_ref"] = booking
         if idem:
             headers = {**headers, "Idempotency-Key": idem}
-        return client.post(API + "/commands", headers=headers, json=body)
+        return connection.post(API + "/commands", headers=headers, json=body)
 
     try:
         alice = connect("alice")
         bob = connect("bob")
+        detail = (
+            client.get(API + "/resources", headers=alice, params={"node": "node-23", "include_node_access": "true"})
+            .raise_for_status()
+            .json()["rows"]
+        )
+        assert len(detail) == 2
+        assert all(
+            row["node_access"] == {"host": "node-23.example.test", "ip": "192.0.2.41", "port": 22} for row in detail
+        )
+        assert all("holding" not in row for row in detail)
+        assert client.get(API + "/resources", headers=alice, params={"include_node_access": "true"}).status_code == 422
         page = client.get(API + "/resources", headers=alice, params={"unit": "card", "model": "P800", "limit": 2})
         assert page.status_code == 200, page.text
         assert len(page.json()["rows"]) == 2
+        assert all("node_access" not in row for row in page.json()["rows"])
         assert page.json()["next_cursor"]
         rest = client.get(
             API + "/resources",
@@ -881,7 +1024,8 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
         ).raise_for_status()
         assert {row["node"] for row in truncated_catalog.json()["rows"]} == {"node-24"}
         client.post(API + "/commands", headers=alice, json={**label_request, "label": ""}).raise_for_status()
-        locked = command(alice, "lock", ref_a, ref_b, duration="30m", idem="once")
+        with closing(TestClient(client.app, client=("192.0.2.42", 50000))) as agent_client:
+            locked = command(alice, "lock", ref_a, ref_b, duration="30m", idem="once", connection=agent_client)
         assert locked.status_code == 200, locked.text
         assert {r["resource_ref"] for r in locked.json()["resources"]} == {ref_a, ref_b}
 
@@ -977,6 +1121,23 @@ def test_agent_v2_resources_commands_and_queue(client, auth_header, session_fact
         free_ref = refs["node-23", 0]
         conflict = command(bob, "lock", free_ref, ref_a, duration="30m")
         assert conflict.status_code == 409
+        history_url = f"/api/bots/{bot_id}/agent-history"
+        history = client.get(history_url, headers=auth_header, params={"limit": 4}).raise_for_status().json()["items"]
+        assert [item["api_version"] for item in history] == [2, 2, 2, 2]
+        assert [(item["actor"]["external_user_id"], item["outcome"]) for item in history] == [
+            ("bob", "rejected"),
+            ("alice", "rejected"),
+            ("alice", "replayed"),
+            ("alice", "applied"),
+        ]
+        assert all(item["command"] == "lock" and "credential_ref" not in item for item in history)
+        assert history[0]["http_status"] == 409
+        assert "source_ip" not in history[2]
+        assert history[3]["source_ip"] == "192.0.2.42"
+        assert history[3]["requested_resources"] == [
+            {"resource_id": "node-23", "device_ids": [1]},
+            {"resource_id": "node-24", "device_ids": [0]},
+        ]
         assert client.get(API + "/resources", headers=bob, params={"mine": True}).json()["rows"] == []
 
         booked = client.post(
@@ -1680,10 +1841,21 @@ def test_v2_idle_recovery_notifies_and_confirms_exact_holding(
     async def exercise():
         nonlocal clock
         holder, other = connect("holder"), connect("other")
+        grants = client.get(API + "/bindings", headers=holder).raise_for_status().json()["grants"]
+        policy = grants[0]["low_utilization"]
+        assert policy["enabled"] and policy["sampling_required"]
+        assert policy["trigger_any"] == ["resource_has_waiting_user", "bot_has_no_available_resources"]
+        assert (policy["observation_seconds"], policy["confirm_window_seconds"], policy["keep_extension_seconds"]) == (
+            1200,
+            600,
+            600,
+        )
+        assert policy["overnight_pause"]["enabled"] is False
         resources = client.get(API + "/resources", headers=holder).raise_for_status().json()["rows"]
         refs = {row["node"]: row["resource_ref"] for row in resources}
         ref = refs["node-a"]
         post(holder, operation="lock", resource_refs=[ref], duration="1h").raise_for_status()
+        post(other, operation="book", resource_refs=[ref], duration="10m").raise_for_status()
 
         key = (bot_id, "node-a", None)
         version = bot.op_holding_version(bot.published_snapshot().state, "node-a", None, "holder", at=clock)
@@ -1698,6 +1870,8 @@ def test_v2_idle_recovery_notifies_and_confirms_exact_holding(
             event, warning = await frame(watched)
             assert (event, warning["resource_ref"], warning["confirm_within_seconds"]) == ("idle.notice", ref, 600)
             assert (warning["utilization_percent"], warning["threshold_percent"]) == (1.2, 5)
+            assert warning["trigger"] == "resource_has_waiting_user"
+            assert (warning["observation_seconds"], warning["keep_extension_seconds"]) == (1200, 600)
             assert (await frame(watched))[0] == "heartbeat"
 
             body = {"operation": "keep", "notice_ref": warning["notice_ref"]}

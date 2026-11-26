@@ -2,6 +2,8 @@
 
 For deployment, messaging-platform setup, utilization datasource configuration, or OP API work, start with [Agent administration guidance](docs/agents/AGENTS.md) and follow the linked task guide. These contribution rules continue to apply to repository changes.
 
+For Agent API v2 rule or Skill changes, see [Bot rule discovery](docs/agents/AGENTS.md#bot-rule-discovery).
+
 ## Language
 
 - Write commit subjects and bodies, PR titles and descriptions, and code review comments in English.

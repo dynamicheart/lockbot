@@ -21,13 +21,18 @@ from lockbot.backend.app.bots.metrics_access import issue_metrics_access
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.resource_api.idle_notifications import IdleChat
-from lockbot.backend.app.resource_api.idle_recovery import IdleRecovery
+from lockbot.backend.app.resource_api.idle_recovery import (
+    IDLE_SECONDS,
+    IdleRecovery,
+    has_available_resource,
+    idle_check_overnight_cutoff,
+    resource_has_waiter,
+)
 from lockbot.metrics.gateway import regex_escape
 
 logger = logging.getLogger(__name__)
 
 CONFIG_ENV = "LOCKBOT_IDLE_OBSERVATION_CONFIG"
-IDLE_SECONDS = 20 * 60
 POLL_SECONDS = 60
 REQUEST_SECONDS = 5
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -139,10 +144,15 @@ class IdleEvidence:
     utilization_percent: float
     threshold_percent: float
     active: bool = True
+    under_pressure: bool = True
 
     @property
     def candidate(self):
         return self.observed_at - self.since >= IDLE_SECONDS
+
+    @property
+    def actionable(self):
+        return self.active and self.under_pressure and self.candidate
 
 
 def _metric_values(payload, nodes):
@@ -270,12 +280,7 @@ class IdleObserver:
 
     @property
     def candidates(self):
-        return {
-            key: evidence
-            for windows in self._windows
-            for key, evidence in windows.items()
-            if evidence.active and evidence.candidate
-        }
+        return {key: evidence for windows in self._windows for key, evidence in windows.items() if evidence.actionable}
 
     def sampling_status(self, bot_id, bot_uuid):
         """Report recent data coverage for this bot without exposing the source or its credentials."""
@@ -335,9 +340,8 @@ class IdleObserver:
                     continue
         self._windows[index] = current
         self._sampling[index] = sampling
-        if (count := sum(row.active and row.candidate for row in current.values())) != sum(
-            row.active and row.candidate for row in previous.values()
-        ):
+        count = sum(row.actionable for row in current.values())
+        if count != sum(row.actionable for row in previous.values()):
             logger.info("Low-utilization observation source %d has %d candidates", index + 1, count)
         if self.recovery is not None and self._recovery_targets[index]:
             evidence = {key: row for key, row in current.items() if key[:2] in self._recovery_targets[index]}
@@ -355,7 +359,9 @@ class IdleObserver:
     def _observe_bot(self, lease, targets, source, metrics, now, previous, current, sampling):
         bot = lease.bot
         enabled = bot.config.get_val("IDLE_UTILIZATION_CHECK_ENABLED")
+        overnight_cutoff = idle_check_overnight_cutoff(bot.config, now) if enabled else None
         state = bot.published_snapshot().state
+        available = has_available_resource(state) if enabled else False
         bot_uuid = bot.config.get_val("_LIFECYCLE_BOT_UUID")
         for target in targets:
             samples = metrics.get(target.source_node)
@@ -380,16 +386,22 @@ class IdleObserver:
                     sampling[target.bot_id, target.node] = observed_at + source.max_sample_age_seconds
             if not enabled or (target.recover_idle and not complete) or observed_at is None:
                 continue
+            if overnight_cutoff is not None and observed_at < overnight_cutoff:
+                continue
             for key, version, holder, devices in _scoped_holdings(bot, target, state, inventory, now):
-                if holder is None and key not in previous:
+                prior = previous.get(key)
+                if prior is not None and overnight_cutoff is not None and prior.since < overnight_cutoff:
+                    prior = None
+                if holder is None and prior is None:
                     continue
                 if key[2] is None and any(
                     metric == UTILIZATION and device not in devices for metric, device in samples
                 ):
                     continue
-                evidence = _advance(previous.get(key), version, holder, now, samples, devices, source, lease.generation)
+                evidence = _advance(prior, version, holder, now, samples, devices, source, lease.generation)
                 if evidence is not None:
-                    current[key] = evidence
+                    under_pressure = not available or resource_has_waiter(state, key, evidence.holder)
+                    current[key] = replace(evidence, under_pressure=under_pressure)
 
     async def _source_loop(self, index, client):
         while True:

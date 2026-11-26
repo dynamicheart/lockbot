@@ -9,6 +9,7 @@ from lockbot.backend.app.auth.models import User
 
 PUBLIC_DECLARATION_FIELDS = ("resource_id", "actor", "task_category", "public_task", "updated_at", "expires_at")
 _PUBLIC_OPERATIONS = frozenset({"lock", "slock", "book", "unlock", "alias", "query", "help", "opkick", "kicklock"})
+_STRUCTURED_COMMANDS = frozenset({"lock", "slock", "book", "free", "label", "keep"})
 
 
 def can_read_private_tasks(db, user):
@@ -92,9 +93,12 @@ def public_event(entry):
         value = entry.get(key)
         if type(value) is int and value >= 0:
             result[key] = value
+    version = entry.get("api_version")
+    if type(version) is int and version in (1, 2):
+        result["api_version"] = version
     for key, allowed in (
         ("operation", {"command", "usage.update", "usage.delete"}),
-        ("outcome", {"dispatched", "applied", "rejected", "may_have_executed"}),
+        ("outcome", {"dispatched", "applied", "rejected", "may_have_executed", "replayed"}),
         ("bot_type", {"NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE"}),
     ):
         value = entry.get(key)
@@ -112,7 +116,11 @@ def public_event(entry):
         result["actor"] = {
             key: actor[key][:256] for key in ("platform", "external_user_id") if isinstance(actor.get(key), str)
         }
-    result["command"] = public_command(entry.get("command"))
+    command = entry.get("command")
+    if version == 2:
+        result["command"] = command if isinstance(command, str) and command in _STRUCTURED_COMMANDS else None
+    else:
+        result["command"] = public_command(command)
     category = entry.get("task_category")
     if isinstance(category, str) and category in TASK_CATEGORIES:
         result.update(task_category=category, public_task=TASK_CATEGORIES[category])

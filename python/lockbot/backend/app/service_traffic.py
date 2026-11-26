@@ -492,6 +492,7 @@ def agent_history(
     cursor: str | None = Query(None, max_length=256),
     limit: int = Query(25, ge=1, le=100),
     query: str = Query("", max_length=128),
+    version: Literal["v1", "v2"] | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -503,7 +504,15 @@ def agent_history(
     from lockbot.backend.app.resource_api.privacy import audit_private_read, private_task_view
 
     private = private_task_view(db, user, include_private)
-    result = read_history(bot_id, limit=limit, cursor=cursor, query=query, private=private)
+    result = read_history(
+        bot_id,
+        limit=limit,
+        cursor=cursor,
+        query=query,
+        api_version=int(version[1:]) if version else None,
+        private=private,
+        include_source_ip=True,
+    )
     if private and result["items"]:
         audit_private_read(db, user, bot_id=bot_id, surface="management.agent_history")
     result["details_restricted"] = not private

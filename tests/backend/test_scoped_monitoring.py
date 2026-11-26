@@ -187,7 +187,7 @@ def test_history_redacts_and_cannot_follow_links_or_foreign_bot(tmp_path):
 
 
 def test_bad_or_rotated_cursor_fails_explicitly(tmp_path):
-    write_rows(tmp_path, 1, [row(1, 1)])
+    write_rows(tmp_path, 1, [row(1, 1), row(1, 2)])
     with pytest.raises(HTTPException) as error:
         event_log.read_history(1, cursor="not-a-cursor")
     assert error.value.status_code == 400

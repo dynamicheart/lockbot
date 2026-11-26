@@ -4,10 +4,19 @@ export default {
     invalidSyntax: 'Invalid JSON. Check brackets, quotes, and commas.',
   },
   nodeInformation: {
+    extraAttributes: 'Additional information',
+    deviceIndex: 'Card {index}',
+    rawJson: 'Raw JSON',
+    copyJson: 'Copy JSON',
+    backToList: 'Back to list',
+    details: 'Details',
+    loginMethod: 'Login method',
+    loginNote: 'Login note',
+    totalMemory: 'System memory',
+    cpuArchitecture: 'CPU architecture',
     node: 'Node',
     collected: 'Collected',
     perCard: '{memory}/card',
-    notCollected: 'Not registered',
     scope: { host: 'Host', container: 'Container', unknown: 'Unknown scope' },
     manualImport: 'Register manually',
     exampleLoginMethod: 'SSH via the cluster bastion',
@@ -98,7 +107,8 @@ export default {
     guideSelectTitle: 'Bot administrator',
     guideSelect: 'Choose the bots and permissions, then share the credential privately.',
     guideShareTitle: 'Maintenance Agent',
-    guideShare: 'Register machine addresses, deploy the utilization collector, and connect its data to LockBot.',
+    guideShare:
+      'Register machine addresses, deploy the utilization collector, and connect its data to LockBot.',
     guideUseTitle: 'A user’s own Agent',
     guideUse: 'Check utilization to choose a card. Once acquired, connect using its IP.',
     scopeHint:
@@ -358,21 +368,24 @@ export default {
 
     resource: 'Resource',
     title: 'Agent history',
-    search: 'Search user, operation or visible task',
+    search: 'Search user, source IP, operation or task',
     retention:
       'Private operation files are size-rotated (up to 10 × 5 MiB). Pages scan at most 1 MiB; filtered pages can be empty with more history available. Refresh if older files have rotated away. Dispatch does not prove the requested resource operation succeeded.',
     error: 'History unavailable or cursor expired; refresh to reload.',
     time: 'Time',
     user: 'User',
+    sourceIp: 'Source IP',
     operation: 'Operation',
     task: 'Task',
     outcome: 'Processing result',
     previous: 'Previous',
     next: 'Next',
+    page: 'Page {page}',
     outcomes: {
       uncertain: 'Outcome uncertain',
       dispatched: 'Dispatched',
       applied: 'Applied',
+      replayed: 'Reused previous result',
       rejected: 'Rejected',
       may_have_executed: 'Outcome uncertain',
     },
@@ -524,8 +537,8 @@ export default {
     businessSources: { chat: 'Group messages', agent: 'Agent API', operator: 'OP API' },
 
     allBots: 'All bots with verified traffic',
-    byCredential: 'By credential',
-    byAgentToken: 'By Agent token',
+    byCredential: 'By HTTP caller',
+    byAgentToken: 'Agent tokens',
     groupBy: 'Group by',
     credential: 'User / caller type',
     credentialKinds: {
@@ -795,7 +808,8 @@ export default {
     ask: 'Ask your Agent',
     example: '“Open my LockBot workbench.”',
     receive: 'Get a sign-in link',
-    receiveDetail: 'Your Agent uses its existing credential to create the link and sends it privately.',
+    receiveDetail:
+      'Your Agent uses its existing credential to create the link and sends it privately.',
     open: 'Open the link and confirm',
     openDetail: 'Confirm in your browser to open the workbench.',
     request:
@@ -906,6 +920,11 @@ export default {
       'Default duration when user does not specify, in seconds. Default: 7200 (2h)',
     maxLockDuration: 'Max Lock Duration',
     overnightLock: 'Overnight leases',
+    overnightLockHelp:
+      'Weeknight leases can extend to the morning cutoff. Weekend leases run from Friday evening to Monday morning within the usual limit.',
+    overnightPauseIdleCheck: 'Pause low-utilization checks overnight',
+    overnightPauseIdleCheckHelp:
+      'Pause reminders and reclamation on weeknights and from Friday evening to Monday morning. A fresh check starts with the first valid sample after the cutoff.',
     overnightStart: 'Start (18:00–23:59)',
     overnightEnd: 'Morning cutoff (00:00–10:00)',
     overnightTimezone: 'Overnight timezone',
@@ -928,7 +947,7 @@ export default {
     earlyNotifyOff: 'Release on Expiry',
     idleUtilizationCheck: '20-minute low utilization check',
     idleUtilizationCheckHelp:
-      'Checks exclusive resources with background sampling. Configure a data source on the bot details page and register sampling targets.',
+      'Applies to exclusive resources with background sampling. Reminders and reclamation require either no unreserved idle resources on this bot or a waiter for the current resource. Configure the data source in the bot details and register background sampling targets.',
     idleSampling: {
       unconfigured: 'Data source not configured',
       waiting: 'Waiting for valid samples',
@@ -1108,7 +1127,8 @@ export default {
     unnamed: 'Unnamed client',
     sourceIp: 'Last source IP {ip}',
     lastSeen: 'Last seen',
-    ipHelp: 'LockBot reports the source IP it observes. This may be a proxy or a shared network address.',
+    ipHelp:
+      'LockBot reports the source IP it observes. This may be a proxy or a shared network address.',
   },
 
   agentActivity: {
@@ -1123,10 +1143,12 @@ export default {
     tokens: 'Agent tokens',
 
     title: 'Agent activity',
-    description: 'v2 requests are totaled per token across its authorized bots on this service.',
+    description: 'V1 counts cover one bot. V2 counts cover all bots authorized by the token.',
+    version: 'Version',
+    allVersions: 'All versions',
     inactive: 'No active grants',
     empty: 'No Agent activity',
-    user: 'User / authorization label',
+    user: 'User',
     labelHelp: 'Caller-declared label; not proof of identity.',
     authorization: 'Authorization',
     revoked: 'Revoked',
@@ -1140,7 +1162,7 @@ export default {
     counting: 'How counts work',
     countingHelp:
       'HTTP attempts, not successful resource changes. Refused includes throttled; both are already counted in reads/writes. Revoked authorizations retain historical counts. Not revoked does not guarantee that an authorization is unexpired or usable.',
-    error: 'Could not refresh Agent activity. Previously loaded records are shown.',
+    error: 'Could not load Agent activity.',
   },
   // === Bot Card ===
   botCard: {

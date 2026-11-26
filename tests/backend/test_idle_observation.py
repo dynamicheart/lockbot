@@ -1,8 +1,10 @@
 import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from threading import Event
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -31,6 +33,8 @@ def inventory(tmp_path):
         bot = manager.get_instance(bot_id).bot
         target = "demo" if bot_id == 1 else "demo dev0"
         bot.lock("alice", f"lock {target} 1h")
+        spare = "other" if bot_id == 1 else "demo dev1"
+        bot.book("alice", f"book {spare} 1h")
         state = bot.published_snapshot().state["demo"]
         unit = state if bot_id == 1 else state[0]
         started = max(started, unit["current_users"][0]["start_time"])
@@ -315,6 +319,9 @@ def test_chat_reminder_and_keep_stay_with_the_holder(inventory, monkeypatch, cha
     bot.config.set_val("GROUP_REMIND_AGENT_IDLE", group_enabled)
     bot.unlock("alice", "free demo dev0")
     execute_text_command("alice", "lock demo dev0 1h", bot, source=channel)
+    waiting = channel == "chat"
+    if waiting:
+        bot.book("bob", "book demo dev0 1h")
     start = bot.published_snapshot().state["demo"][0]["current_users"][0]["start_time"]
     now = start
     sample_cards = {"dev-a": 1.2, "dev-b": 82}
@@ -353,9 +360,11 @@ def test_chat_reminder_and_keep_stay_with_the_holder(inventory, monkeypatch, cha
         return
     (warning,) = messages
     assert warning["header"]["toid"] == [123]
+    reason = "当前资源有人排队" if waiting else "本机器人无空闲资源"
     expected = (
-        "❗【资源利用率偏低】\n\ndemo dev0 的利用率已连续 20 分钟低于 5% (1.2%)\n\n"
-        "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `keep demo dev0`。"
+        "❗【资源利用率偏低】\n\ndemo dev0 的利用率已连续 20 分钟低于 5%（当前 1.2%）。\n"
+        "请在 10 分钟内恢复使用。如需多保留 10 分钟，请在本群 @ 机器人并发送 `keep demo dev0`。\n\n"
+        f"触发原因：{reason}。"
     )
     assert warning["body"] == [
         {"type": "TEXT", "content": expected + "\n\n"},
@@ -424,7 +433,7 @@ def test_recovery_broadcasts_only_after_commit(inventory, monkeypatch, channel):
         assert messages == []
         return
     assert len(messages) == 2
-    assert "demo 的利用率已连续 20 分钟低于 5% (0%)" in messages[0][0]["content"]
+    assert "demo 的利用率已连续 20 分钟低于 5%（当前 0%）" in messages[0][0]["content"]
     assert messages[-1] == [
         {
             "type": "TEXT",
@@ -565,6 +574,147 @@ def test_low_utilization_window_follows_the_same_holder(inventory, monkeypatch, 
             else:
                 assert bot.published_snapshot().state["demo"]["current_users"][0]["user_id"] == who
                 assert sent == ["warning"]
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("bot_id,target,spare,card", [(1, "demo", "other", None), (2, "demo dev0", "demo dev1", 0)])
+def test_idle_recovery_requires_bot_capacity_pressure_or_a_waiter(inventory, monkeypatch, bot_id, target, spare, card):
+    manager, targets, _ = inventory
+    bot = manager.get_instance(bot_id).bot
+    bot.unlock("alice", f"free {spare}")
+    bot.unlock("alice", f"free {target}")
+    now = start = int(time.time())
+    monkeypatch.setattr("time.time", lambda: now)
+    execute_text_command("alice", f"lock {target} 1h", bot, source="chat")
+    monitored = {**targets[bot_id - 1], "recover_idle": True}
+    config = policy.ObservationConfig.model_validate({"sources": [source([monitored])]})
+    observer = policy.IdleObserver(config, manager, clock=lambda: now)
+    sent = []
+    observer.chat_notification = lambda notice, kind: sent.append(kind) is None
+    resource = (bot_id, "demo", card)
+
+    async def exercise():
+        nonlocal now
+        transport = httpx.MockTransport(lambda _: response(now))
+        async with httpx.AsyncClient(transport=transport) as client:
+            for offset in range(0, 1261, 180):
+                now = start + offset
+                await observer.poll_source(0, client)
+            assert resource not in observer.candidates
+            assert sent == []
+
+            bot.book("bob", f"book {target} 10m")
+            await observer.poll_source(0, client)
+            (first,) = observer.recovery.for_holder("alice", {bot_id}, channel="chat")
+            assert first.since == start
+            assert sent == ["warning"]
+
+            bot.unlock("bob", f"free {target}")
+            assert not observer.recovery.for_holder("alice", {bot_id}, channel="chat")
+            for offset in (1440, 1620, 1800, 1860):
+                now = start + offset
+                await observer.poll_source(0, client)
+            assert resource not in observer.candidates
+            assert sent == ["warning"]
+
+            other_bot = manager.get_instance(3 - bot_id).bot
+            other_spare = "demo dev1" if bot_id == 1 else "other"
+            other_bot.unlock("alice", f"free {other_spare}")
+            bot.lock("charlie", f"lock {spare} 1h")
+            await observer.poll_source(0, client)
+            (second,) = observer.recovery.for_holder("alice", {bot_id}, channel="chat")
+            assert second.ref != first.ref
+            assert second.review_at == now + 600
+            for offset in (180, 360, 540):
+                now = second.delivered_at + offset
+                await observer.poll_source(0, client)
+
+            if card is None:
+                reclaim_ready = observer.recovery.reclaim_ready
+
+                def release_spare_before_reclaim(evidence, max_age):
+                    assert evidence[resource].actionable
+                    bot.unlock("charlie", f"free {spare}")
+                    return reclaim_ready(evidence, max_age)
+
+                monkeypatch.setattr(observer.recovery, "reclaim_ready", release_spare_before_reclaim)
+            now = second.review_at
+            await observer.poll_source(0, client)
+            if card is None:
+                assert sent == ["warning", "warning"]
+                assert bot.published_snapshot().state["demo"]["status"] == "exclusive"
+            else:
+                assert sent == ["warning", "warning", "released"]
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("weekend", [False, True])
+@pytest.mark.parametrize("pause_enabled,poll_at_night", [(True, True), (True, False), (False, True)])
+def test_overnight_pause_restarts_observation_at_morning_cutoff(
+    inventory, monkeypatch, pause_enabled, poll_at_night, weekend
+):
+    manager, targets, _ = inventory
+    bot = manager.get_instance(1).bot
+    bot.unlock("alice", "free demo")
+    bot.config.set_val("OVERNIGHT_ENABLED", not pause_enabled)
+    if pause_enabled:
+        bot.config.set_val("OVERNIGHT_PAUSE_IDLE_CHECK", True)
+    bot.config.set_val("OVERNIGHT_START", "23:59")
+    bot.config.set_val("OVERNIGHT_END", "00:00")
+    start = int(datetime(2026, 11, 27 if weekend else 25, 23, 28, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
+    night_start = start + 31 * 60
+    morning = night_start + (2 * 86400 if weekend else 0) + 60
+    now = collected = start
+    monkeypatch.setattr("time.time", lambda: now)
+    execute_text_command("alice", f"lock demo {'60h' if weekend else '1h'}", bot, source="chat")
+    target = {**targets[0], "recover_idle": True}
+    config = policy.ObservationConfig.model_validate({"sources": [source([target])]})
+    observer = policy.IdleObserver(config, manager, clock=lambda: now)
+    sent = []
+    observer.chat_notification = lambda notice, kind: sent.append(kind) is None
+
+    async def exercise():
+        nonlocal now, collected
+        transport = httpx.MockTransport(lambda _: response(collected))
+        async with httpx.AsyncClient(transport=transport) as client:
+            for offset in range(0, 1801, 180):
+                now = collected = start + offset
+                await observer.poll_source(0, client)
+            (first,) = observer.recovery.for_holder("alice", {1}, channel="chat")
+            assert first.review_at == night_start
+
+            now = collected = night_start
+            if not pause_enabled:
+                assert observer.recovery.for_holder("alice", {1}, channel="chat") == [first]
+                await observer.poll_source(0, client)
+                assert sent == ["warning", "released"]
+                assert bot.published_snapshot().state["demo"]["status"] == "idle"
+                return
+
+            assert not observer.recovery.for_holder("alice", {1}, channel="chat")
+            if poll_at_night:
+                await observer.poll_source(0, client)
+                assert not observer.candidates
+                assert observer.sampling_status(1, target["bot_uuid"])["fresh_nodes"] == 1
+                assert bot.published_snapshot().state["demo"]["status"] == "exclusive"
+
+                now = morning  # The latest available sample was taken during the pause.
+                await observer.poll_source(0, client)
+                assert not observer.candidates
+
+            for offset in (0, 180, 360, 540, 720, 900, 1080, 1200):
+                now = collected = morning + offset
+                await observer.poll_source(0, client)
+                if offset < 1200:
+                    assert not observer.candidates
+                    assert sent == ["warning"]
+            (second,) = observer.recovery.for_holder("alice", {1}, channel="chat")
+            assert second.since == morning
+            assert second.ref != first.ref
+            assert sent == ["warning", "warning"]
+            assert bot.published_snapshot().state["demo"]["status"] == "exclusive"
 
     asyncio.run(exercise())
 

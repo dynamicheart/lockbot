@@ -29,6 +29,7 @@ _V2 = {
     ("post", "/bindings"): (config.RESOURCE_AUTH_V2_BIND_START_RATE, None),
     ("post", "/bindings/{binding_id}/complete"): ("60/minute", None),
     ("get", "/bindings"): ("120/minute", None),
+    ("post", "/identity-tickets"): ("30/minute", None),
     ("delete", "/bindings/{grant_ref}"): ("60/minute", None),
     ("get", "/resources"): (None, "read"),
     ("get", "/resources/events"): (None, "read"),

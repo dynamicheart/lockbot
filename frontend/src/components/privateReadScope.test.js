@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createRenderer, h, nextTick, reactive, ssrContextKey } from 'vue'
+import AgentActivity from './AgentActivity.vue'
 import AgentHistory from './AgentHistory.vue'
 import BotAudit from './BotAudit.vue'
 import ServiceTrafficPanel from './ServiceTrafficPanel.vue'
@@ -82,6 +83,39 @@ it('uses public reads in Agent history and ignores stale requests after switchin
   old.resolve({ data: { items: [{ public_task: 'old bot' }] } })
   await flush()
   expect(view.items).toEqual([])
+})
+
+it('pages through ten Agent operations and resets the cursor when filtering by version', async () => {
+  const { view } = mount(AgentHistory, { botId: 1 })
+  expect(state.pending[0].options.params).toMatchObject({ limit: 10, cursor: undefined })
+  state.pending[0].resolve({ data: { items: [], next_cursor: 'next-page' } })
+  await flush()
+  view.next()
+  expect(state.pending[1].options.params.cursor).toBe('next-page')
+  view.version = 'v2'
+  view.reset()
+  expect(view.page).toBe(0)
+  expect(state.pending[1].options.signal.aborted).toBe(true)
+  expect(state.pending[2].options.params).toMatchObject({
+    version: 'v2',
+    limit: 10,
+    cursor: undefined,
+  })
+})
+
+it('combines the version and authorization filters for the full Agent token inventory', () => {
+  const { view } = mount(AgentActivity, {})
+  view.page = 3
+  view.version = 'v1'
+  view.status = 'history'
+  view.changeFilter()
+  expect(state.pending[1].path).toBe('/admin/agent-activity')
+  expect(state.pending[1].options.params).toMatchObject({
+    include_legacy: true,
+    version: 'v1',
+    status: 'history',
+    page: 1,
+  })
 })
 
 it('clears private authorization audit rows immediately after closing consent', async () => {

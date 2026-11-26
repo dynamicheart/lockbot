@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
+from lockbot.backend.app.resource_api.idle_recovery import idle_trigger_reason
 from lockbot.core.i18n import t
 
 logger = logging.getLogger(__name__)
@@ -62,11 +63,11 @@ class IdleChat:
                     return False
                 resource = _resource_label(notice.resource)
                 if kind == "warning":
-                    if (
-                        bot.op_holding_version(
-                            bot.published_snapshot().state, node, card, notice.holder, at=self.clock()
-                        )
-                        != notice.version
+                    now = self.clock()
+                    state = bot.published_snapshot().state
+                    reason = idle_trigger_reason(bot, notice, now, state=state)
+                    if not reason or notice.version != (
+                        bot.op_holding_version(state, node, card, notice.holder, at=now)
                     ):
                         return False
                     body = t(
@@ -75,6 +76,7 @@ class IdleChat:
                         resource=resource,
                         utilization=str(notice.utilization_percent).removesuffix(".0"),
                         threshold=str(notice.threshold_percent).removesuffix(".0"),
+                        reason=t(f"idle.reason.{reason}", config=bot.config),
                         command=f"keep {resource}",
                     )
                     mentions = [notice.holder]

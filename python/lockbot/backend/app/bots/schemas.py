@@ -43,13 +43,16 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     if not v:
         return v
     errors: list[str] = []
-    if "OVERNIGHT_ENABLED" in v and not isinstance(v["OVERNIGHT_ENABLED"], bool):
-        errors.append("OVERNIGHT_ENABLED must be a boolean")
     if any(key.startswith("OVERNIGHT_") for key in v):
         window_settings(v)
     if "FORBID_RELOCK" in v and not isinstance(v["FORBID_RELOCK"], bool):
         errors.append("FORBID_RELOCK must be a boolean")
-    for key in ("IDLE_UTILIZATION_CHECK_ENABLED", "GROUP_REMIND_AGENT_IDLE"):
+    for key in (
+        "OVERNIGHT_ENABLED",
+        "OVERNIGHT_PAUSE_IDLE_CHECK",
+        "IDLE_UTILIZATION_CHECK_ENABLED",
+        "GROUP_REMIND_AGENT_IDLE",
+    ):
         if key in v and not isinstance(v[key], bool):
             errors.append(f"{key} must be a boolean")
     if "GROUP_REMIND_API_RESOURCES" in v and not isinstance(v["GROUP_REMIND_API_RESOURCES"], bool):

@@ -2,6 +2,12 @@
 
 from html import escape
 
+from pygments import highlight
+from pygments.formatters import HtmlFormatter
+from pygments.lexers.shell import BashLexer
+
+_BASH_FORMATTER = HtmlFormatter(nowrap=True)
+
 _SETUP = """ORIGIN='https://lockbot.example.com'
 umask 077
 AUTH_DIR="$(mktemp -d)"
@@ -164,7 +170,8 @@ _V1_STEPS = (
     ),
 )
 
-TUTORIAL_STYLE = """
+TUTORIAL_STYLE = (
+    """
 <style>
   .agent-tutorial { margin: 1.25rem auto; padding: 0 1.25rem; max-width: 1160px;
     color: #263042; font: 15px/1.55 system-ui, sans-serif; }
@@ -174,6 +181,8 @@ TUTORIAL_STYLE = """
   .agent-tutorial pre { overflow-x: auto; padding: .8rem; background: #f2f5fa; }
 </style>
 """
+    + f"<style>{_BASH_FORMATTER.get_style_defs('.agent-tutorial .language-bash')}</style>"
+)
 
 
 def agent_tutorial(version: int, lang: str, *, reference_only=False) -> str:
@@ -207,9 +216,11 @@ def agent_tutorial(version: int, lang: str, *, reference_only=False) -> str:
     )
     steps = []
     for idx, (zh_title, en_title, zh_text, en_text, code) in enumerate(_V2_STEPS if version == 2 else _V1_STEPS):
+        highlighted = highlight(code, BashLexer(), _BASH_FORMATTER)
         steps.append(
             f"<details{' open' if idx == 0 else ''}><summary>{escape(en_title if english else zh_title)}</summary>"
-            f"<p>{escape(en_text if english else zh_text)}</p><pre><code>{escape(code)}</code></pre></details>"
+            f'<p>{escape(en_text if english else zh_text)}</p><pre><code class="language-bash">{highlighted}'
+            "</code></pre></details>"
         )
     return (
         f'<section class="agent-tutorial" id="quickstart"><h2>{title}</h2><p>{escape(intro)}</p>'

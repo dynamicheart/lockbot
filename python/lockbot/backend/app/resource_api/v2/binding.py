@@ -17,6 +17,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import Base, get_db
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
 from lockbot.backend.app.rate_limit import limiter
+from lockbot.backend.app.resource_api.rules import BindingLockRules, BindingLowUtilizationRule, binding_rules
 from lockbot.backend.app.resource_api.v2.skill import SKILL_PATH, SkillZip, download_skill, skill_release
 from lockbot.backend.app.resource_auth import credentials, service
 from lockbot.backend.app.resource_auth.authority import authority_guard
@@ -447,11 +448,26 @@ def complete_binding(
         return result
 
 
-@router.get("/bindings")
+class BindingRuleGrant(BaseModel):
+    grant_ref: str
+    platform: str
+    name: str
+    chat_id: str | None
+    bot_id: int
+    lock_rules: BindingLockRules
+    low_utilization: BindingLowUtilizationRule
+
+
+class BindingRuleDirectory(BaseModel):
+    grants: list[BindingRuleGrant]
+
+
+@router.get("/bindings", response_model=BindingRuleDirectory)
 @limiter.limit("120/minute")
 def list_bindings(request: Request, response: Response, db: Session = Depends(get_db)):
     response.headers["Cache-Control"] = "no-store"
     principal = require_principal(request, db)
+    observer = getattr(request.app.state, "idle_observer", None)
     rows = db.execute(
         select(PersonalGrant, Bot)
         .join(Bot, Bot.id == PersonalGrant.bot_id)
@@ -462,7 +478,11 @@ def list_bindings(request: Request, response: Response, db: Session = Depends(ge
     )
     return {
         "grants": [
-            {**grant_summary(grant, bot, principal), "bot_id": bot.id}
+            {
+                **grant_summary(grant, bot, principal),
+                "bot_id": bot.id,
+                **binding_rules(bot, principal.external_user_id, observer),
+            }
             for grant, bot in rows
             if grant_active(db, principal, grant, bot)
         ]

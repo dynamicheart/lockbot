@@ -7,6 +7,17 @@
       </div>
       <div class="activity-controls">
         <el-select
+          v-model="version"
+          size="small"
+          class="version-filter"
+          :aria-label="t('agentActivity.version')"
+          @change="changeFilter"
+        >
+          <el-option value="all" :label="t('agentActivity.allVersions')" />
+          <el-option value="v1" label="V1" />
+          <el-option value="v2" label="V2" />
+        </el-select>
+        <el-select
           v-model="status"
           size="small"
           class="authorization-filter"
@@ -46,8 +57,15 @@
             </div>
             <div class="actor-note">
               <span>{{ platformLabel(row.platform, $t) }}</span>
-              <span v-if="row.version">{{ row.version }}</span>
+              <span v-if="row.bot_name">{{ row.bot_name }}</span>
             </div>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('agentActivity.version')" min-width="80">
+          <template #default="{ row }">
+            <el-tag size="small" type="info" effect="plain">{{
+              row.version?.toUpperCase()
+            }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column :label="t('agentActivity.authorization')" min-width="110">
@@ -132,10 +150,13 @@ const metrics = [
   { key: 'limited_requests', label: 'limited', warning: true },
 ]
 const status = ref('active')
+const version = ref('all')
 const page = ref(1)
 const total = ref(0)
 function changeFilter() {
   page.value = 1
+  items.value = []
+  total.value = 0
   refresh()
 }
 const number = (value) => new Intl.NumberFormat(locale.value).format(value || 0)
@@ -148,6 +169,8 @@ async function refresh() {
     const { data } = await api.get('/admin/agent-activity', {
       params: {
         status: status.value,
+        include_legacy: true,
+        version: version.value === 'all' ? undefined : version.value,
         page: page.value,
         limit: 20,
       },
@@ -180,11 +203,15 @@ onBeforeUnmount(() => generation++)
 }
 .activity-controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
 .authorization-filter {
   width: 126px;
+}
+.version-filter {
+  width: 120px;
 }
 .activity-toolbar h3 {
   margin: 0 0 6px;

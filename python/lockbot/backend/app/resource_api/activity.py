@@ -8,6 +8,7 @@ import threading
 import time
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import (
@@ -20,9 +21,11 @@ from sqlalchemy import (
     case,
     delete,
     func,
+    literal,
     or_,
     select,
     tuple_,
+    union_all,
 )
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import SQLAlchemyError
@@ -32,6 +35,7 @@ from lockbot.backend.app.auth.dependencies import get_current_user, require_supe
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import Base, get_db
+from lockbot.backend.app.resource_api.event_log import event_for_request, write_event
 from lockbot.backend.app.resource_api.privacy import audit_private_read, private_task_view
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 
@@ -207,34 +211,33 @@ def install_activity_middleware(app):
                 recorder.record(principal, request.method, status)
             actor = getattr(request.state, "resource_actor", None)
             engine = getattr(request.state, "resource_activity_engine", None)
-            if actor is not None:
-                from lockbot.backend.app.resource_api.event_log import event_for_request, write_event
-
-                event = event_for_request(request)
-                if engine is not None:
-                    kind = getattr(
-                        request.state, "resource_activity_kind", "read" if request.method == "GET" else "write"
-                    )
-                    await asyncio.to_thread(
-                        _record,
-                        engine,
-                        actor,
-                        kind,
-                        status,
-                        _utcnow(),
-                    )
-                if event is not None:
-                    await asyncio.to_thread(
-                        write_event, actor=actor, event=event, status=status, duration_ms=duration_ms
-                    )
+            if actor is not None and engine is not None:
+                kind = getattr(request.state, "resource_activity_kind", "read" if request.method == "GET" else "write")
+                await asyncio.to_thread(_record, engine, actor, kind, status, _utcnow())
+            event_actor = actor or getattr(request.state, "v2_event_actor", None)
+            if event_actor is not None and (event := event_for_request(request)) is not None:
+                await asyncio.to_thread(
+                    write_event,
+                    actor=event_actor,
+                    event=event,
+                    status=status,
+                    duration_ms=duration_ms,
+                    source_ip=request.client.host if request.client else None,
+                )
 
 
 def valid_binding_filter(bot, now):
-    from lockbot.core.platforms.registry import normalize_platform_name
+    from lockbot.core.platforms.registry import DEFAULT_PLATFORM, normalize_platform_name
 
+    # The service-wide inventory compares against joined bot rows.
+    platform = (
+        func.coalesce(func.nullif(func.lower(func.trim(Bot.platform)), ""), DEFAULT_PLATFORM)
+        if bot is Bot
+        else normalize_platform_name(bot.platform)
+    )
     return func.coalesce(
         and_(
-            ResourceBinding.platform == normalize_platform_name(bot.platform),
+            ResourceBinding.platform == platform,
             ResourceBinding.bound_bot_id == bot.id,
             ResourceBinding.bound_bot_uuid == bot.uuid,
             ResourceBinding.bound_identity_revision == bot.identity_revision,
@@ -486,6 +489,8 @@ def get_service_agent_activity(
     status: str = Query("active", pattern="^(active|history|all)$"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    include_legacy: bool = False,
+    version: Literal["v1", "v2"] | None = None,
     _user: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
@@ -501,6 +506,9 @@ def get_service_agent_activity(
     )
     query = (
         select(
+            literal("v2").label("version"),
+            literal(None, type_=String).label("bot_name"),
+            PersonalCredential.public_id.label("sort_key"),
             PersonalCredential.platform,
             PersonalCredential.external_user_id,
             active.label("active"),
@@ -513,17 +521,42 @@ def get_service_agent_activity(
         .select_from(PersonalCredential)
         .outerjoin(V2AgentActivity, V2AgentActivity.principal_id == PersonalCredential.public_id)
     )
+    if version == "v1" or (version is None and include_legacy):
+        legacy = (
+            select(
+                literal("v1").label("version"),
+                Bot.name.label("bot_name"),
+                ResourceBinding.public_id.label("sort_key"),
+                ResourceBinding.platform,
+                ResourceBinding.external_user_id,
+                valid_binding_filter(Bot, now).label("active"),
+                and_(
+                    ResourceBinding.credential_expires_at.is_not(None),
+                    ResourceBinding.credential_expires_at <= now,
+                ).label("expired"),
+                *(func.coalesce(getattr(AgentActivity, key), 0).label(key) for key in _COUNTERS),
+                AgentActivity.last_seen_at,
+            )
+            .select_from(ResourceBinding)
+            .outerjoin(Bot, Bot.id == ResourceBinding.bound_bot_id)
+            .outerjoin(AgentActivity, AgentActivity.binding_id == ResourceBinding.id)
+        )
+        query = legacy if version == "v1" else union_all(query, legacy)
+    tokens = query.subquery()
+    filtered = select(tokens)
     if status != "all":
-        query = query.where(active if status == "active" else ~active)
-    total = db.scalar(select(func.count()).select_from(query.subquery()))
+        filtered = filtered.where(tokens.c.active if status == "active" else ~tokens.c.active)
+    total = db.scalar(select(func.count()).select_from(filtered.subquery()))
     rows = db.execute(
-        query.order_by(V2AgentActivity.last_seen_at.desc(), PersonalCredential.public_id)
+        filtered.order_by(tokens.c.last_seen_at.desc().nulls_last(), tokens.c.version, tokens.c.sort_key)
         .offset((page - 1) * limit)
         .limit(limit)
     ).mappings()
-    return {
-        "total": total,
-        "page": page,
-        "limit": limit,
-        "items": [dict(row, version="v2", row_key=f"{page}:{index}") for index, row in enumerate(rows)],
-    }
+    items = []
+    for index, row in enumerate(rows):
+        item = dict(row, row_key=f"{page}:{index}")
+        item.pop("sort_key")
+        if not include_legacy and version != "v1":
+            item.pop("bot_name")
+        items.append(item)
+    return {"total": total, "page": page, "limit": limit, "items": items}

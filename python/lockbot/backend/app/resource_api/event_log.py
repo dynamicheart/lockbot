@@ -6,7 +6,9 @@ import os
 import re
 import stat
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from ipaddress import ip_address
 
 from lockbot.backend.app.managed_paths import ManagedPathError, get_managed_paths
 from lockbot.core.handler import redact_command_text
@@ -16,12 +18,30 @@ MAX_BYTES = 5 * 1024 * 1024
 BACKUPS = 9
 _write_lock = threading.Lock()
 _secrets = re.compile(
-    r"/#/r/[0-9]+/[A-Za-z0-9_-]{22}|(?:lbr_|lbk_)[A-Za-z0-9_-]+|lbv1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+    r"/#/r/[0-9]+/[A-Za-z0-9_-]{22}|(?:lbr_|lbk_|lbv2_)[A-Za-z0-9_-]+|lbv1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     r"|lb[ac]1\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}"
     r"|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     r"|(?i:Bearer\s+\S+)"
 )
 _secret_values = re.compile(r"(?i)(\b(?:api[_-]?key|access[_-]?token|token|password|authorization)\s*[:=]\s*)\S+")
+
+
+@dataclass(frozen=True)
+class EventActor:
+    bot_id: int
+    platform: str
+    external_user_id: str
+    binding_public_id: str
+    binding_record_id: int | None = None
+
+
+def _source_ip(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(ip_address(value)).partition("%")[0]
+    except ValueError:
+        return None
 
 
 def _safe(value, depth=0):
@@ -54,9 +74,10 @@ def _safe(value, depth=0):
     return value
 
 
-def begin_event(request, *, bot=None, operation, command=None, task_category=None):
+def begin_event(request, *, bot=None, operation, command=None, task_category=None, api_version=1):
     """Only validated request fields, never a raw request body or Authorization header."""
     request.state.agent_event = {
+        "api_version": api_version,
         "operation": operation,
         "command": redact_command_text(command) if command is not None else None,
         "task_category": task_category,
@@ -65,6 +86,7 @@ def begin_event(request, *, bot=None, operation, command=None, task_category=Non
         "bot_type": getattr(bot, "bot_type", None),
         "stage": "received",
     }
+    return request.state.agent_event
 
 
 def describe_targets(bot, actor, word, text):
@@ -93,7 +115,7 @@ def event_for_request(request):
     # Authentication can succeed before body validation or an access-switch refusal.
     # Attribute the status without inspecting or retaining an invalid raw body.
     if request.method == "POST" and request.url.path.endswith("/commands"):
-        return {"operation": "command", "stage": "received"}
+        return {"api_version": 1, "operation": "command", "stage": "received"}
     return None
 
 
@@ -131,13 +153,18 @@ def observe_own_resources(bot, actor, targets, *, all_owned=False):
         return None
 
 
-def write_event(*, actor, event, status, duration_ms):
+def write_event(*, actor, event, status, duration_ms, source_ip=None):
     """Best-effort, private, size-rotated history. HTTP 200 does not prove a lock succeeded."""
     stage = event.get("stage", "received")
-    if status >= 400:
+    if stage == "replayed":
+        outcome = "replayed"
+    elif status >= 400:
         outcome = "may_have_executed" if stage in {"dispatching", "dispatched", "committed"} else "rejected"
+    elif stage == "committed":
+        outcome = "applied"
     else:
         outcome = "dispatched" if event.get("operation") == "command" else "applied"
+    address = _source_ip(source_ip)
     entry = _safe(
         {
             "schema_version": 1,
@@ -147,6 +174,7 @@ def write_event(*, actor, event, status, duration_ms):
             "credential_id": actor.binding_record_id,
             "credential_ref": actor.binding_public_id,
             **{key: value for key, value in event.items() if key != "stage"},
+            **({"source_ip": address} if address else {}),
             "http_status": status,
             "outcome": outcome,
             "duration_ms": round(max(0, duration_ms), 2),
@@ -187,7 +215,18 @@ READ_BUDGET = 1024 * 1024
 MAX_LINE_BYTES = 64 * 1024
 
 
-def read_history(bot_id, *, limit=25, cursor=None, query="", private=False, stream="agent", project=None):
+def read_history(
+    bot_id,
+    *,
+    limit=25,
+    cursor=None,
+    query="",
+    api_version=None,
+    private=False,
+    include_source_ip=False,
+    stream="agent",
+    project=None,
+):
     """Newest first, inode/offset cursor: appends do not shift subsequent pages.
 
     A rotated-away cursor fails explicitly rather than silently skipping history. File
@@ -280,12 +319,18 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False, stre
                         if row is None:
                             continue
                     else:
+                        # Before V2 commands were logged, this file contained only V1 operations.
+                        version = row.setdefault("api_version", 1)
+                        if api_version is not None and (type(version) is not int or version != api_version):
+                            continue
+                        address = _source_ip(row.get("source_ip")) if include_source_ip else None
                         # Only event-schema fields are exposed; redact again for older files.
                         row = _safe(
                             {
                                 key: row[key]
                                 for key in (
                                     "schema_version",
+                                    "api_version",
                                     "timestamp",
                                     "bot_type",
                                     "operation",
@@ -327,6 +372,8 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False, stre
                                     row[field] = public[field]
                         else:
                             row = public
+                        if address:
+                            row["source_ip"] = address
                     if project is not None:
                         row = project(row)
                     if needle and needle not in json.dumps(row, ensure_ascii=False).casefold():
@@ -340,6 +387,8 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False, stre
                     break
                 stop = start
             if next_position:
+                if next_position[1] == 0 and index == len(handles) - 1:
+                    next_position = None
                 break
             if stop > 0:
                 next_position = (inode, stop)
