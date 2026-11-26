@@ -21,7 +21,8 @@ def _mapping(**nodes):
     return {"version": 1, "nodes": nodes}
 
 
-def test_preview_patch_merge_and_remove_are_private(client, api, admin_header, db_session):
+def test_preview_patch_merge_and_remove_are_private(client, api, admin_header, db_session, monkeypatch):
+    monkeypatch.setattr("lockbot.backend.app.resource_api.views.bot_manager", api["manager"])
     bot, path = _routes(api)
     owner = api["auth_header"]
     assert client.get(path, headers=api["headers"]).status_code == 401
@@ -60,7 +61,8 @@ def test_preview_patch_merge_and_remove_are_private(client, api, admin_header, d
     assert all(HOST not in (row.detail or "") for row in db_session.query(AuditLog))
 
 
-def test_shared_view_exposes_only_registered_addresses_with_a_valid_link(client, api):
+def test_shared_view_exposes_only_registered_addresses_with_a_valid_link(client, api, monkeypatch):
+    monkeypatch.setattr("lockbot.backend.app.resource_api.views.bot_manager", api["manager"])
     _, path = _routes(api)
     address = {"host": HOST, "ip": "192.0.2.41", "port": 2222}
     assert (
